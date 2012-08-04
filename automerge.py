@@ -24,6 +24,9 @@ class AutoMerger(object):
         return retrepos
     def clone(self,repo):
         fqdn = self.repos[repo]
+        if self.arg.purge:
+            st,op = gso("rm -rf %s"%os.path.join(c.REPODIR,repo)) ; assert st==0
+            print '%s purged.'%repo
         if not self.args.noclone and not os.path.exists(os.path.join(c.REPODIR,repo)):
             print 'initial clone of %s.'%(repo)
             cmd = 'cd %s && git clone %s'%(c.REPODIR,fqdn)
@@ -77,6 +80,8 @@ class AutoMerger(object):
         else:
             return False
     def handle_submodules(self,repo,to_branch):
+        results=[]
+        if repo not in c.SUBMODULES: return
         submodules = c.SUBMODULES[repo]
         for sm in submodules:
             print 'handling submodule %s'%sm
@@ -89,9 +94,18 @@ class AutoMerger(object):
             assert os.path.isdir(smpath) ; 
             st,op = getstatusoutput('ls %s'%smpath) ; assert st==0 
             assert len(op.split("\n"))<2
-
-            cmd = 'cd {smdir} && rm -rf {basename} && git clone {localsource} {basename}'.format(smdir=smdir,localsource=localsource,basename=bn)
-            st,op = getstatusoutput(cmd) ; assert st==0,"%s returned %s: %s"%(cmd,st,op)
+            formatargs = {'smpath':smpath,'smdir':smdir,'localsource':localsource,'basename':bn,'target_branch':to_branch}
+            cmd1 = 'cd {smdir} && rm -rf {basename} && git clone {localsource} {basename} && cd {basename}'.format(**formatargs)
+            st,op = getstatusoutput(cmd1) ; assert st==0,"%s returned %s: %s"%(cmd1,st,op)
+            cmd2 = 'cd {smpath} && git checkout {target_branch}'.format(**formatargs)
+            st,op = getstatusoutput(cmd2) ; assert st in [0,256],"%s returned %s: %s"%(cmd2,st,op)
+            if st==256:
+                print 'looks like %s does not have our branch %s. reverting'%(sm['path'],to_branch)
+                cmd3 = "cd {smdir} && rm -rf {basename} && mkdir {basename}".format(**formatargs)
+                st,op = getstatusoutput(cmd3) ; assert st==0
+            else:
+                print 'SUCCESFULLY UPDATED %s (%s) to branch %s'%(sm['repo'],sm['path'],to_branch)
+            results.append(sm)
             
     completed=[]
     def single_merge(self,repo,from_branch,to_branch,lastcommits,message):
@@ -105,7 +119,7 @@ class AutoMerger(object):
         cmd = 'git reset {target_last_commit}'.format(repo=repo,target_last_commit=target_last_commit)
         st,op = gso(repo,cmd) ; assert st==0
 
-        self.handle_submodules(repo,to_branch)
+        sm_updated = self.handle_submodules(repo,to_branch)
         
         print 'reset succesful.'
         cmd = 'git add . && git add -u'.format(repo=repo)
@@ -192,6 +206,7 @@ if __name__ == '__main__':
     optparser.add_argument('--nopush',action='store_true',dest='nopush',help='do not push')
     optparser.add_argument('--push',action='store_true',dest='push',help='push to origin')
     optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories.')
+    optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all cached repos.')
     args = optparser.parse_args()
 
     # init and run parser
