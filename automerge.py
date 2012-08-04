@@ -39,19 +39,25 @@ class AutoMerger(object):
         #print 'checkout of %s/%s'%(repo,branch)
         cmd = 'git checkout {branch} '.format(repo=repo,branch=branch)
         if not self.args.nopull: cmd+= '; git pull origin {branch}'.format(repo=repo,branch=branch)
-        st,op = gso(repo,cmd) ; assert st==0,"%s returnde %s"%(cmd,st)
+        st,op = gso(repo,cmd) ; assert st in [0,256],"%s returned %s"%(cmd,st)
+        if st==256:
+            print '%s does not have branch %s'%(repo,branch)
+            return False
+        return True
         #print 'checkout complete.'
     def get_current_branch(self,repo):
         cmd = 'git branch | grep "^*"'%(repo)
         st,op = gso(repo,cmd) ; assert st==0
         curbranch = op.split('* ')[1].split('\n')[0]
         return curbranch
-    def get_last_commits(self,repo,branch,commits=1):
+    def get_last_commits(self,repo,branch,commits=1,with_message=False):
         assert self.get_current_branch(repo)==branch
         cmd = 'git log --pretty=oneline | head -{commits}'.format(repo=repo,commits=commits)
         st,op = gso(repo,cmd); assert st==0
         commits=[]
         for ln in op.split('\n'):
+            if with_message:
+                raise Exception(ln)
             commitid = ln.split(' ')[0]
             commits.append(commitid)
 
@@ -85,7 +91,7 @@ class AutoMerger(object):
         print 'succesfully re-merged.'
         cmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)
         if self.args.nopush:
-            print '#please execute:'
+            print '#please execute in %s:'%repo
             print cmd
         if self.args.push:
             st,op = gso(repo,cmd); assert st==0
@@ -96,7 +102,9 @@ class AutoMerger(object):
 
         lastcommits={}
         for br in [from_branch,to_branch]:
-            self.checkout(repo,br)
+            if not self.checkout(repo,br):
+                print 'initial checkout failed. leaving.'
+                return
             lastcommits[br]=self.get_last_commits(repo,br,commits=10)
 
         self.checkout(repo,from_branch)
@@ -109,6 +117,8 @@ class AutoMerger(object):
                 .format(target_branch=to_branch,
                         source_branch=from_branch,
                         target_last_commit=target_last_commit)
+            last_commit_w_msg = self.get_last_commits(repo,from_branch,1,True)
+            raise Exception(last_commit_w_msg)
             raise Exception('missing last target commit on source.')
         if target_last_commit==source_last_commit:
             raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
