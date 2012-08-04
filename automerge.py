@@ -58,9 +58,13 @@ class AutoMerger(object):
         commits=[]
         for ln in op.split('\n'):
             if with_message:
-                raise Exception(ln)
-            commitid = ln.split(' ')[0]
-            commits.append(commitid)
+                spl = ln.split(' ')
+                commitid = spl[0]
+                message = ' '.join(spl[1:])
+                apnd = {'rev':commitid,'message':message}
+            else:
+                apnd = ln.split(' ')[0]
+            commits.append(apnd)
 
         return commits
     def got_untracked(self,repo):
@@ -72,6 +76,7 @@ class AutoMerger(object):
             return True
         else:
             return False
+    completed=[]
     def single_merge(self,repo,from_branch,to_branch,lastcommits,message):
         print 'commencing single merge %s => %s.'%(from_branch,to_branch)
         self.checkout(repo,to_branch)
@@ -94,17 +99,21 @@ class AutoMerger(object):
         if self.args.nopush:
             print '#please execute in %s:'%repo
             print cmd
+            torun='cd %s && '%(os.path.join(c.REPODIR,repo))+cmd
         if self.args.push:
             st,op = gso(repo,cmd); assert st==0
-
+            torun=None
+        return torun
+    aborted=[]
     def merge(self,repo,from_branch,to_branch,message):
+        print 'WORKING MERGE on %s %s => %s'%(repo,from_branch,to_branch)
         assert repo in self.repos
         self.clone(repo)
 
         lastcommits={}
         for br in [from_branch,to_branch]:
             if not self.checkout(repo,br):
-                print 'initial checkout failed. leaving.'
+                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed. leaving.'})
                 return
             lastcommits[br]=self.get_last_commits(repo,br,commits=10)
 
@@ -118,13 +127,29 @@ class AutoMerger(object):
                 .format(target_branch=to_branch,
                         source_branch=from_branch,
                         target_last_commit=target_last_commit)
-            last_commit_w_msg = self.get_last_commits(repo,from_branch,1,True)
-            raise Exception(last_commit_w_msg)
-            raise Exception('missing last target commit on source.')
+            self.checkout(repo,to_branch)
+            last_commit_w_msg = self.get_last_commits(repo,to_branch,1,True)[0]
+            if last_commit_w_msg['message']==message:
+                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Already merged.'})
+                return
+            print 'last commits on %s'%from_branch
+            print lastcommits[from_branch]
+            self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Missing last target commit on source.'})
+            return
         if target_last_commit==source_last_commit:
             raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
-        self.single_merge(repo,from_branch,to_branch,lastcommits,message)
-    
+        torun = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
+
+        rev = self.get_last_commits(repo,to_branch,1)[0]
+
+        self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'rev':rev})
+
+    def print_results(self):
+        print '########## COMPLETE: ##########'
+        for res in m.completed: print res
+        print '########## ABORTED: ##########'
+        for abrt in m.aborted: print abrt
+            
 if __name__ == '__main__':
     optparser = argparse.ArgumentParser(
         description='AutoMerger one commit merge', add_help=True)
@@ -158,5 +183,6 @@ if __name__ == '__main__':
         dorepos = args.repos
     for repo in dorepos:
         m.merge(repo,args.from_branch,args.to_branch,args.message)
+    m.print_results()
 
 
