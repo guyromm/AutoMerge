@@ -199,18 +199,18 @@ class AutoMerger(object):
             for scr in self.screwed_up: print scr
 
     def cmdrun(self):
-        optparser = argparse.ArgumentParser(description='AutoMerger one commit merge', add_help=True)
+        optparser = argparse.ArgumentParser(description='merge branches across multiple repos with a single commit.', add_help=True)
         optparser.add_argument('--from', action='store', dest='from_branch',help='source branch')
         optparser.add_argument('--to', action='store', dest='to_branch',help='target branch')
-        optparser.add_argument('--message', action='store', dest='message',help='merge commit message')
-        optparser.add_argument('--repo', action='append', dest='repos',help='specific repositories to merge.')
-        optparser.add_argument('--nofetch',action='store_true',dest='nofetch',help='do not fetch -a')
-        optparser.add_argument('--nopull',action='store_true',dest='nopull',help='do not pull latest branches')
-        optparser.add_argument('--noclone',action='store_true',dest='noclone',help='do not clone')
-        optparser.add_argument('--nopush',action='store_true',dest='nopush',help='do not push')
-        optparser.add_argument('--push',action='store_true',dest='push',help='push to origin')
-        optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories.')
-        optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all cached repos.')
+        optparser.add_argument('--message', action='store', dest='message',help='commit message for the merge commit')
+        optparser.add_argument('--repo', action='append', dest='repos',help='specify specific repository(ies) to merge. repeatable.')
+        optparser.add_argument('--nofetch',action='store_true',dest='nofetch',help='do not run git fetch -a')
+        optparser.add_argument('--nopull',action='store_true',dest='nopull',help='do not pull latest branches, use the ones that exist locally.')
+        optparser.add_argument('--noclone',action='store_true',dest='noclone',help='avoid cloning missing repositories.')
+        optparser.add_argument('--nopush',action='store_true',dest='nopush',help='do not push - the default.')
+        optparser.add_argument('--push',action='store_true',dest='push',help='push to origin after merge is done locally.')
+        optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories instead of specifying via --repo')
+        optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all locally cached repos.')
         args = optparser.parse_args()
 
         self.setargs(args)
