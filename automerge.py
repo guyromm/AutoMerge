@@ -11,8 +11,9 @@ def gso(repo,cmd):
 #make sure no extra files are merged
 #make sure that the source branch has all the commits of the target branch 
 class AutoMerger(object):
-    def __init__(self,args):
+    def __init__(self):
         self.repos = self.get_repos()
+    def setargs(self,args):
         self.args = args
     def get_repos(self):
         myrepos = c.REPOS
@@ -109,6 +110,7 @@ class AutoMerger(object):
                 results.append(sm)
         return results    
     completed=[]
+    screwed_up=[]
     def single_merge(self,repo,from_branch,to_branch,lastcommits,message):
         print 'commencing single merge %s => %s.'%(from_branch,to_branch)
         self.checkout(repo,to_branch)
@@ -148,7 +150,7 @@ class AutoMerger(object):
         lastcommits={}
         for br in [from_branch,to_branch]:
             if not self.checkout(repo,br):
-                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed. leaving.'})
+                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed.'})
                 return
             lastcommits[br]=self.get_last_commits(repo,br,commits=10)
 
@@ -169,57 +171,61 @@ class AutoMerger(object):
                 return
             print 'last commits on %s'%from_branch
             print lastcommits[from_branch]
-            self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Missing last target commit on source.'})
+            self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Missing last target commit on source.'.upper()})
             return
         if target_last_commit==source_last_commit:
             raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
-        rt = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
-        torun = rt['torun'] ; sm_updated = rt['sm_updated']
+        try:
+            rt = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
+            torun = rt['torun'] ; sm_updated = rt['sm_updated']
+            rev = self.get_last_commits(repo,to_branch,1)[0]
+            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'rev':rev,'submodules_updated':sm_updated})
+        except Exception,e:
+            self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e)})
 
-        rev = self.get_last_commits(repo,to_branch,1)[0]
-
-        self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'rev':rev,'submodules_updated':sm_updated})
-
+    @staticmethod
+    def _sortaborted(e1,e2):
+        return cmp(e1['reason'],e2['reason'])
     def print_results(self):
-        print '########## COMPLETE: ##########'
-        for res in m.completed: print res
-        print '########## ABORTED: ##########'
-        for abrt in m.aborted: print abrt
-            
+        if len(self.completed):
+            print '########## COMPLETE: ##########'
+            for res in self.completed: print res
+        self.aborted.sort(self._sortaborted)
+        if len(self.aborted):
+            print '########## ABORTED: ##########'
+            for abrt in self.aborted: print abrt
+        if len(self.screwed_up):
+            print '########## SCREWED UP: ##########'
+            for scr in self.screwed_up: print scr
+
+    def cmdrun(self):
+        optparser = argparse.ArgumentParser(description='AutoMerger one commit merge', add_help=True)
+        optparser.add_argument('--from', action='store', dest='from_branch',help='source branch')
+        optparser.add_argument('--to', action='store', dest='to_branch',help='target branch')
+        optparser.add_argument('--message', action='store', dest='message',help='merge commit message')
+        optparser.add_argument('--repo', action='append', dest='repos',help='specific repositories to merge.')
+        optparser.add_argument('--nofetch',action='store_true',dest='nofetch',help='do not fetch -a')
+        optparser.add_argument('--nopull',action='store_true',dest='nopull',help='do not pull latest branches')
+        optparser.add_argument('--noclone',action='store_true',dest='noclone',help='do not clone')
+        optparser.add_argument('--nopush',action='store_true',dest='nopush',help='do not push')
+        optparser.add_argument('--push',action='store_true',dest='push',help='push to origin')
+        optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories.')
+        optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all cached repos.')
+        args = optparser.parse_args()
+
+        self.setargs(args)
+
+        if args.allrepos:
+            dorepos = c.REPOS
+        else:
+            dorepos = args.repos
+        for repo in dorepos:
+            self.merge(repo,args.from_branch,args.to_branch,args.message)
+        self.print_results()
+
 if __name__ == '__main__':
-    optparser = argparse.ArgumentParser(
-        description='AutoMerger one commit merge', add_help=True)
-    
-    optparser.add_argument('--from', action='store', dest='from_branch',
-                           help='source branch')
-
-    optparser.add_argument('--to', action='store', dest='to_branch',
-                           help='target branch')
-
-    optparser.add_argument('--message', action='store', dest='message',
-                           help='merge commit message')
-
-    optparser.add_argument('--repo', action='append', dest='repos',
-                           help='specific repositories to merge.'
-                           )
-    optparser.add_argument('--nofetch',action='store_true',dest='nofetch',help='do not fetch -a')
-    optparser.add_argument('--nopull',action='store_true',dest='nopull',help='do not pull latest branches')
-    optparser.add_argument('--noclone',action='store_true',dest='noclone',help='do not clone')
-    optparser.add_argument('--nopush',action='store_true',dest='nopush',help='do not push')
-    optparser.add_argument('--push',action='store_true',dest='push',help='push to origin')
-    optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories.')
-    optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all cached repos.')
-    args = optparser.parse_args()
-
     # init and run parser
-    m = AutoMerger(args)
-
-    if args.allrepos:
-        dorepos = c.REPOS
-    else:
-        dorepos = args.repos
-    for repo in dorepos:
-        m.merge(repo,args.from_branch,args.to_branch,args.message)
-    m.print_results()
+    m = AutoMerger()
+    m.cmdrun()
 
 
