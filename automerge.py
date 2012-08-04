@@ -24,11 +24,11 @@ class AutoMerger(object):
         return retrepos
     def clone(self,repo):
         fqdn = self.repos[repo]
-        if not self.args.noclone and not os.path.exists(repo):
+        if not self.args.noclone and not os.path.exists(os.path.join(c.REPODIR,repo)):
             print 'initial clone of %s.'%(repo)
             cmd = 'cd %s && git clone %s'%(c.REPODIR,fqdn)
             st,op = getstatusoutput(cmd)
-            assert st==0
+            assert st==0,"%s returned %s: %s"%(cmd,st,op)
             print 'clone complete.'
         elif not self.args.nofetch:
             print 'fetch -a of %s'%repo
@@ -39,10 +39,10 @@ class AutoMerger(object):
         #print 'checkout of %s/%s'%(repo,branch)
         cmd = 'git checkout {branch} '.format(repo=repo,branch=branch)
         if not self.args.nopull: cmd+= '; git pull origin {branch}'.format(repo=repo,branch=branch)
-        st,op = gso(repo,cmd) ; assert st==0,"%s returnde %s"%(cmd,st)
+        st,op = gso(repo,cmd) ; assert st==0,"%s returned %s"%(cmd,st)
         #print 'checkout complete.'
     def get_current_branch(self,repo):
-        cmd = 'git branch | grep "^*"'%(repo)
+        cmd = 'git branch | grep "^*"'
         st,op = gso(repo,cmd) ; assert st==0
         curbranch = op.split('* ')[1].split('\n')[0]
         return curbranch
