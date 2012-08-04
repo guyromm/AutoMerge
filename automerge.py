@@ -24,10 +24,11 @@ class AutoMerger(object):
         return retrepos
     def clone(self,repo):
         fqdn = self.repos[repo]
-        if self.arg.purge:
-            st,op = gso("rm -rf %s"%os.path.join(c.REPODIR,repo)) ; assert st==0
+        repopath = os.path.join(c.REPODIR,repo)
+        if self.args.purge and os.path.exists(repopath):
+            st,op = getstatusoutput("rm -rf %s"%repopath) ; assert st==0
             print '%s purged.'%repo
-        if not self.args.noclone and not os.path.exists(os.path.join(c.REPODIR,repo)):
+        if not self.args.noclone and not os.path.exists(repopath):
             print 'initial clone of %s.'%(repo)
             cmd = 'cd %s && git clone %s'%(c.REPODIR,fqdn)
             st,op = getstatusoutput(cmd)
@@ -105,8 +106,8 @@ class AutoMerger(object):
                 st,op = getstatusoutput(cmd3) ; assert st==0
             else:
                 print 'SUCCESFULLY UPDATED %s (%s) to branch %s'%(sm['repo'],sm['path'],to_branch)
-            results.append(sm)
-            
+                results.append(sm)
+        return results    
     completed=[]
     def single_merge(self,repo,from_branch,to_branch,lastcommits,message):
         print 'commencing single merge %s => %s.'%(from_branch,to_branch)
@@ -137,7 +138,7 @@ class AutoMerger(object):
         if self.args.push:
             st,op = gso(repo,cmd); assert st==0
             torun=None
-        return torun
+        return {'torun':torun,'sm_updated':sm_updated}
     aborted=[]
     def merge(self,repo,from_branch,to_branch,message):
         print 'WORKING MERGE on %s %s => %s'%(repo,from_branch,to_branch)
@@ -172,11 +173,12 @@ class AutoMerger(object):
             return
         if target_last_commit==source_last_commit:
             raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
-        torun = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
+        rt = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
+        torun = rt['torun'] ; sm_updated = rt['sm_updated']
 
         rev = self.get_last_commits(repo,to_branch,1)[0]
 
-        self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'rev':rev})
+        self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'rev':rev,'submodules_updated':sm_updated})
 
     def print_results(self):
         print '########## COMPLETE: ##########'
