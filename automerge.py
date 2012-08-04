@@ -76,6 +76,23 @@ class AutoMerger(object):
             return True
         else:
             return False
+    def handle_submodules(self,repo,to_branch):
+        submodules = c.SUBMODULES[repo]
+        for sm in submodules:
+            print 'handling submodule %s'%sm
+            smpath = os.path.join(c.REPODIR,repo,sm['path'])
+            smdir = os.path.dirname(smpath)
+            bn = os.path.basename(smpath)
+            cwd = os.getcwd()
+            localsource = os.path.join(cwd,c.REPODIR,sm['repo'])
+            #print 'inspecting %s'%smpath
+            assert os.path.isdir(smpath) ; 
+            st,op = getstatusoutput('ls %s'%smpath) ; assert st==0 
+            assert len(op.split("\n"))<2
+
+            cmd = 'cd {smdir} && rm -rf {basename} && git clone {localsource} {basename}'.format(smdir=smdir,localsource=localsource,basename=bn)
+            st,op = getstatusoutput(cmd) ; assert st==0,"%s returned %s: %s"%(cmd,st,op)
+            
     completed=[]
     def single_merge(self,repo,from_branch,to_branch,lastcommits,message):
         print 'commencing single merge %s => %s.'%(from_branch,to_branch)
@@ -87,6 +104,9 @@ class AutoMerger(object):
         if self.got_untracked(repo): raise Exception('got untracked files in single merge.')
         cmd = 'git reset {target_last_commit}'.format(repo=repo,target_last_commit=target_last_commit)
         st,op = gso(repo,cmd) ; assert st==0
+
+        self.handle_submodules(repo,to_branch)
+        
         print 'reset succesful.'
         cmd = 'git add . && git add -u'.format(repo=repo)
         print 'running %s'%cmd
