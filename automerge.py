@@ -2,6 +2,7 @@
 from commands import getstatusoutput
 import argparse,os
 import config as c
+import json
 
 def gso(repo,cmd):
     repodir = os.path.join(c.REPODIR,repo)
@@ -179,24 +180,26 @@ class AutoMerger(object):
             rt = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
             torun = rt['torun'] ; sm_updated = rt['sm_updated']
             rev = self.get_last_commits(repo,to_branch,1)[0]
-            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'rev':rev,'submodules_updated':sm_updated})
+            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':lastcommits[to_branch][0],'new_rev':rev,'submodules_updated':sm_updated})
         except Exception,e:
             self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e)})
 
     @staticmethod
     def _sortaborted(e1,e2):
         return cmp(e1['reason'],e2['reason'])
+    def print_item(self,i):
+        print json.dumps(i,sort_keys=True,indent=True)
     def print_results(self):
         if len(self.completed):
             print '########## COMPLETE: ##########'
-            for res in self.completed: print res
+            for res in self.completed: self.print_item(res)
         self.aborted.sort(self._sortaborted)
         if len(self.aborted):
             print '########## ABORTED: ##########'
-            for abrt in self.aborted: print abrt
+            for abrt in self.aborted: self.print_item(abrt)
         if len(self.screwed_up):
             print '########## SCREWED UP: ##########'
-            for scr in self.screwed_up: print scr
+            for scr in self.screwed_up: self.print_item( scr)
 
     def cmdrun(self):
         optparser = argparse.ArgumentParser(description='merge branches across multiple repos with a single commit.', add_help=True)
