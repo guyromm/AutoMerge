@@ -112,28 +112,39 @@ class AutoMerger(object):
         return results    
     completed=[]
     screwed_up=[]
-    def single_merge(self,repo,from_branch,to_branch,lastcommits,message):
+    def single_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
+        return self.perform_merge('single',repo,from_branch,to_branch,lastcommits,message)
+    def standard_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
+        return self.perform_merge('standard',repo,from_branch,to_branch,lastcommits,message)
+
+    def perform_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
         print 'commencing single merge %s => %s.'%(from_branch,to_branch)
         self.checkout(repo,to_branch)
         cmd = 'git merge {source_branch}'.format(repo=repo,source_branch=from_branch)
         st,op = gso(repo,cmd) ; assert st==0
         target_last_commit = lastcommits[to_branch][0]
-        print 'regular merge done. resetting to last %s commit %s'%(to_branch,target_last_commit)
-        if self.got_untracked(repo): raise Exception('got untracked files in single merge.')
-        cmd = 'git reset {target_last_commit}'.format(repo=repo,target_last_commit=target_last_commit)
-        st,op = gso(repo,cmd) ; assert st==0
 
-        sm_updated = self.handle_submodules(repo,to_branch)
+        if merge_type=='single':
+            print 'regular merge done. resetting to last %s commit %s'%(to_branch,target_last_commit)
+            if self.got_untracked(repo): raise Exception('got untracked files in single merge.')
+            cmd = 'git reset {target_last_commit}'.format(repo=repo,target_last_commit=target_last_commit)
+            st,op = gso(repo,cmd) ; assert st==0
+
+            sm_updated = self.handle_submodules(repo,to_branch)
         
-        print 'reset succesful.'
-        cmd = 'git add . && git add -u'.format(repo=repo)
-        print 'running %s'%cmd
-        st,op = gso(repo,cmd) ; assert st==0
-        print 'added all files and deletions for commit.'
-        cmd = 'git commit -m "{message}"'.format(repo=repo,message=message)
-        st,op = gso(repo,cmd) ; assert st==0
-        print 'succesfully re-merged.'
-        cmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)
+            print 'reset succesful.'
+            cmd = 'git add . && git add -u'.format(repo=repo)
+            print 'running %s'%cmd
+            st,op = gso(repo,cmd) ; assert st==0
+            print 'added all files and deletions for commit.'
+            cmd = 'git commit -m "{message}"'.format(repo=repo,message=message)
+            st,op = gso(repo,cmd) ; assert st==0
+            print 'succesfully re-merged.'
+            cmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)
+        elif merge_type=='standard':
+            print 'regular merge done. doing submodules'
+            sm_updated = self.handle_submodules(repo,to_branch)
+
         if self.args.nopush:
             print '#please execute in %s:'%repo
             print cmd
@@ -177,7 +188,9 @@ class AutoMerger(object):
         if target_last_commit==source_last_commit:
             raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
         try:
-            rt = self.single_merge(repo,from_branch,to_branch,lastcommits,message)
+            assert self.args.merge_type in ['single','standard']
+            methname = getattr(self,'%s_merge'%self.args.merge_type)
+            rt = methname(repo,from_branch,to_branch,lastcommits,message)
             torun = rt['torun'] ; sm_updated = rt['sm_updated']
             rev = self.get_last_commits(repo,to_branch,1)[0]
             self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':lastcommits[to_branch][0],'new_rev':rev,'submodules_updated':sm_updated})
@@ -203,8 +216,9 @@ class AutoMerger(object):
 
     def cmdrun(self):
         optparser = argparse.ArgumentParser(description='merge branches across multiple repos with a single commit.', add_help=True)
-        optparser.add_argument('--from', action='store', dest='from_branch',help='source branch')
-        optparser.add_argument('--to', action='store', dest='to_branch',help='target branch')
+        optparser.add_argument('--from', action='store', dest='from_branch',help='source branch',required=True)
+        optparser.add_argument('--to', action='store', dest='to_branch',help='target branch',required=True)
+        optparser.add_argument('--type', action='store', dest='merge_type',help='type of merge. one of single,standard',required=True)
         optparser.add_argument('--message', action='store', dest='message',help='commit message for the merge commit')
         optparser.add_argument('--repo', action='append', dest='repos',help='specify specific repository(ies) to merge. repeatable.')
         optparser.add_argument('--nofetch',action='store_true',dest='nofetch',help='do not run git fetch -a')
@@ -220,8 +234,10 @@ class AutoMerger(object):
 
         if args.allrepos:
             dorepos = c.REPOS
-        else:
+        elif args.repos and len(args.repos):
             dorepos = args.repos
+        else:
+            raise Exception('no repos or the --allrepos flag specified.')
         for repo in dorepos:
             self.merge(repo,args.from_branch,args.to_branch,args.message)
         self.print_results()
