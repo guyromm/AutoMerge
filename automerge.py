@@ -3,6 +3,7 @@ from commands import getstatusoutput
 import argparse,os
 import config as c
 import json
+import re
 
 def gso(repo,cmd):
     repodir = os.path.join(c.REPODIR,repo)
@@ -116,12 +117,28 @@ class AutoMerger(object):
         return self.perform_merge('single',repo,from_branch,to_branch,lastcommits,message)
     def standard_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
         return self.perform_merge('standard',repo,from_branch,to_branch,lastcommits,message)
-
+    confre = re.compile('^CONFLICT \((?P<conflict_type>.*)\): (?P<conflict_message>.*)$')
+    def extract_conflicts(self,op):
+        rt=[]
+        for line in op.split('\n'):
+            cres = self.confre.search(line)
+            if not cres: assert 'CONFLICT' not in line
+            if cres:
+                fname = cres.group('conflict_message').split(' in ')[1]
+                rt.append({'type':cres.group('conflict_type'),'message':cres.group('conflict_message'),'fname':fname})
+        return rt
     def perform_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
-        print 'commencing single merge %s => %s.'%(from_branch,to_branch)
+        print 'commencing %s merge %s => %s.'%(merge_type,from_branch,to_branch)
         self.checkout(repo,to_branch)
         cmd = 'git merge {source_branch}'.format(repo=repo,source_branch=from_branch)
-        st,op = gso(repo,cmd) ; assert st==0
+        st,op = gso(repo,cmd)
+        #in standard merges we are explicit about conflicts
+        conflicts=None
+        if merge_type=='standard' and st==256: 
+            print 'standard merge returned %s'%st
+            conflicts = self.extract_conflicts(op)
+        else:
+            assert st==0,"%s returned %s:\n%s"%(cmd,st,op)
         target_last_commit = lastcommits[to_branch][0]
 
         if merge_type=='single':
@@ -149,10 +166,11 @@ class AutoMerger(object):
             print '#please execute in %s:'%repo
             print cmd
             torun='cd %s && '%(os.path.join(c.REPODIR,repo))+cmd
-        if self.args.push:
+        if not conflicts and self.args.push:
             st,op = gso(repo,cmd); assert st==0
             torun=None
-        return {'torun':torun,'sm_updated':sm_updated}
+        rt= {'torun':torun,'sm_updated':sm_updated,'conflicts':conflicts}
+        return rt
     aborted=[]
     def merge(self,repo,from_branch,to_branch,message):
         print 'WORKING MERGE on %s %s => %s'%(repo,from_branch,to_branch)
@@ -171,31 +189,37 @@ class AutoMerger(object):
             raise Exception('has untracked files.')
         target_last_commit = lastcommits[to_branch][0]
         source_last_commit = lastcommits[from_branch][0]
-        if target_last_commit not in lastcommits[from_branch]:
-            print 'target branch ({target_branch}) last commit {target_last_commit} is not present in source branch {source_branch}'\
-                .format(target_branch=to_branch,
-                        source_branch=from_branch,
-                        target_last_commit=target_last_commit)
-            self.checkout(repo,to_branch)
-            last_commit_w_msg = self.get_last_commits(repo,to_branch,1,True)[0]
-            if last_commit_w_msg['message']==message:
-                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Already merged.'})
+        #check presence of last target commit  on source only when merge type is "single"
+        if self.args.merge_type=='single':
+            if target_last_commit not in lastcommits[from_branch]:
+                print 'target branch ({target_branch}) last commit {target_last_commit} is not present in source branch {source_branch}'\
+                    .format(target_branch=to_branch,
+                            source_branch=from_branch,
+                            target_last_commit=target_last_commit)
+                self.checkout(repo,to_branch)
+                last_commit_w_msg = self.get_last_commits(repo,to_branch,1,True)[0]
+                if last_commit_w_msg['message']==message:
+                    self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Already merged.'})
+                    return
+                print 'last commits on %s'%from_branch
+                print lastcommits[from_branch]
+                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Missing last target commit on source.'.upper()})
                 return
-            print 'last commits on %s'%from_branch
-            print lastcommits[from_branch]
-            self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Missing last target commit on source.'.upper()})
-            return
         if target_last_commit==source_last_commit:
             raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
         try:
             assert self.args.merge_type in ['single','standard']
-            methname = getattr(self,'%s_merge'%self.args.merge_type)
-            rt = methname(repo,from_branch,to_branch,lastcommits,message)
-            torun = rt['torun'] ; sm_updated = rt['sm_updated']
+            methname = '%s_merge'%self.args.merge_type
+            meth = getattr(self,methname)
+            print 'invoking %s'%methname
+            rt = meth(self,repo,from_branch,to_branch,lastcommits,message)
+            print 'done.'
+            torun = rt['torun'] ; sm_updated = rt['sm_updated'] ; conflicts = rt['conflicts']
             rev = self.get_last_commits(repo,to_branch,1)[0]
-            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':lastcommits[to_branch][0],'new_rev':rev,'submodules_updated':sm_updated})
+            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':lastcommits[to_branch][0],'new_rev':rev,'submodules_updated':sm_updated,'conflicts':conflicts})
         except Exception,e:
             self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e)})
+
 
     @staticmethod
     def _sortaborted(e1,e2):
