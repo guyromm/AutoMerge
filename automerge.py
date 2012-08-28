@@ -154,6 +154,8 @@ class AutoMerger(object):
             print 'running %s'%cmd
             st,op = gso(repo,cmd) ; assert st==0
             print 'added all files and deletions for commit.'
+            if not message:
+                raise Exception('--message not specified in single merge.')
             cmd = 'git commit -m "{message}"'.format(repo=repo,message=message)
             st,op = gso(repo,cmd) ; assert st==0
             print 'succesfully re-merged.'
@@ -182,7 +184,7 @@ class AutoMerger(object):
             if not self.checkout(repo,br):
                 self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed.'})
                 return
-            lastcommits[br]=self.get_last_commits(repo,br,commits=10)
+            lastcommits[br]=self.get_last_commits(repo,br,commits=20)
 
         self.checkout(repo,from_branch)
         if self.got_untracked(repo):
@@ -259,7 +261,10 @@ class AutoMerger(object):
         if args.allrepos:
             dorepos = c.REPOS
         elif args.repos and len(args.repos):
-            dorepos = args.repos
+            dorepos=[]
+            for repo in c.REPOS:
+                if repo in args.repos:
+                    dorepos.append(repo)
         else:
             raise Exception('no repos or the --allrepos flag specified.')
         for repo in dorepos:
