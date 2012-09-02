@@ -5,10 +5,14 @@ import config as c
 import json
 import re
 
-def gso(repo,cmd):
-    repodir = os.path.join(c.REPODIR,repo)
-    assert os.path.exists(repodir)
-    cmd = 'cd %s && %s'%(repodir,cmd)
+def gso(repo=None,cmd=None,path=None):
+    if repo is not None:
+        repodir = os.path.join(c.REPODIR,repo)
+        assert os.path.exists(repodir)
+        cmd = 'cd %s && %s'%(repodir,cmd)
+    elif path is not None:
+        cmd = 'cd %s && %s'%(path,cmd)
+    assert cmd is not None
     return getstatusoutput(cmd)
 #make sure no extra files are merged
 #make sure that the source branch has all the commits of the target branch 
@@ -58,10 +62,16 @@ class AutoMerger(object):
         st,op = gso(repo,cmd) ; assert st==0
         curbranch = op.split('* ')[1].split('\n')[0]
         return curbranch
-    def get_last_commits(self,repo,branch,commits=1,with_message=False):
-        assert self.get_current_branch(repo)==branch
+    def get_last_commits(self,repo,branch,commits=1,with_message=False,path=False):
+        if not path:
+            assert self.get_current_branch(repo)==branch
+            assert repo
+            assert branch
+            pathgo=None
+        else:
+            pathgo=path
         cmd = 'git log --pretty=oneline | head -{commits}'.format(repo=repo,commits=commits)
-        st,op = gso(repo,cmd); assert st==0
+        st,op = gso(repo,cmd,path=pathgo); assert st==0
         commits=[]
         for ln in op.split('\n'):
             if with_message:
@@ -109,6 +119,7 @@ class AutoMerger(object):
                 st,op = getstatusoutput(cmd3) ; assert st==0
             else:
                 print 'SUCCESFULLY UPDATED %s (%s) to branch %s'%(sm['repo'],sm['path'],to_branch)
+                sm['new_rev'] = self.get_last_commits(repo=None,branch=None,commits=1,path=smpath)[0]
                 results.append(sm)
         return results    
     completed=[]
@@ -220,7 +231,8 @@ class AutoMerger(object):
             rev = self.get_last_commits(repo,to_branch,1)[0]
             self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':lastcommits[to_branch][0],'new_rev':rev,'submodules_updated':sm_updated,'conflicts':conflicts})
         except Exception,e:
-            self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e)})
+            import traceback
+            self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e),'traceback':traceback.format_exc()})
 
 
     @staticmethod
