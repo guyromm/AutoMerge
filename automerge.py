@@ -107,7 +107,7 @@ class AutoMerger(object):
             #print 'inspecting %s'%smpath
             assert os.path.isdir(smpath) ; 
             st,op = getstatusoutput('ls %s'%smpath) ; assert st==0 
-            assert len(op.split("\n"))<2
+            assert len(op.split("\n"))<2,"bad length of\n%s"%op
             formatargs = {'smpath':smpath,'smdir':smdir,'localsource':localsource,'basename':bn,'target_branch':to_branch}
             cmd1 = 'cd {smdir} && rm -rf {basename} && git clone {localsource} {basename} && cd {basename}'.format(**formatargs)
             st,op = getstatusoutput(cmd1) ; assert st==0,"%s returned %s: %s"%(cmd1,st,op)
@@ -170,17 +170,17 @@ class AutoMerger(object):
             cmd = 'git commit -m "{message}"'.format(repo=repo,message=message)
             st,op = gso(repo,cmd) ; assert st==0
             print 'succesfully re-merged.'
-            cmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)
+
         elif merge_type=='standard':
             print 'regular merge done. doing submodules'
             sm_updated = self.handle_submodules(repo,to_branch)
-
+        pushcmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)            
         if self.args.nopush:
             print '#please execute in %s:'%repo
             print cmd
-            torun='cd %s && '%(os.path.join(c.REPODIR,repo))+cmd
+            torun='cd %s && '%(os.path.join(c.REPODIR,repo))+pushcmd+' && cd ../..'
         if not conflicts and self.args.push:
-            st,op = gso(repo,cmd); assert st==0
+            st,op = gso(repo,pushcmd); assert st==0
             torun=None
         rt= {'torun':torun,'sm_updated':sm_updated,'conflicts':conflicts}
         return rt
@@ -218,9 +218,10 @@ class AutoMerger(object):
                 print lastcommits[from_branch]
                 self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'Missing last target commit on source.'.upper()})
                 return
-        if target_last_commit==source_last_commit:
-            raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
         try:
+            if target_last_commit==source_last_commit:
+                raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
+
             assert self.args.merge_type in ['single','standard']
             methname = '%s_merge'%self.args.merge_type
             meth = getattr(self,methname)
@@ -254,7 +255,7 @@ class AutoMerger(object):
 
     def cmdrun(self):
         optparser = argparse.ArgumentParser(description='merge branches across multiple repos with a single commit.', add_help=True)
-        optparser.add_argument('--from', action='store', dest='from_branch',help='source branch',required=True)
+        optparser.add_argument('--from', action='store', dest='from_branch',help='source branch',required=False)
         optparser.add_argument('--to', action='store', dest='to_branch',help='target branch',required=True)
         optparser.add_argument('--type', action='store', dest='merge_type',help='type of merge. one of single,standard',required=True)
         optparser.add_argument('--message', action='store', dest='message',help='commit message for the merge commit')
@@ -270,17 +271,32 @@ class AutoMerger(object):
 
         self.setargs(args)
 
+        if not args.from_branch and not args.repos: 
+            raise Exception('--from is required if source branch is not specified per-repository in --repo')
+
         if args.allrepos:
-            dorepos = c.REPOS
+            dorepos = [{'from_branch':args.from_branch,'repo':repo} for repo in c.REPOS]
+    
         elif args.repos and len(args.repos):
+            argrepos={}
+            for repo in args.repos:
+                if '/' in repo:
+                    repo,from_branch=repo.split('/')
+                else:
+                    repo = repo #duh
+                    assert args.from_branch,"--from not specified."
+                    from_branch = args.from_branch
+                argrepos[repo]=from_branch
+
             dorepos=[]
             for repo in c.REPOS:
-                if repo in args.repos:
-                    dorepos.append(repo)
+                if repo in argrepos:
+                    dorepos.append({'from_branch':argrepos[repo],'repo':repo})
         else:
             raise Exception('no repos or the --allrepos flag specified.')
-        for repo in dorepos:
-            self.merge(repo,args.from_branch,args.to_branch,args.message)
+
+        for repobj in dorepos:
+            self.merge(repobj['repo'],repobj['from_branch'],args.to_branch,args.message)
         self.print_results()
 
 if __name__ == '__main__':
