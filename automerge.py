@@ -95,9 +95,15 @@ class AutoMerger(object):
             return False
     def handle_submodules(self,repo,to_branch):
         results=[]
-        if repo not in c.SUBMODULES: return
+        if repo not in c.SUBMODULES: 
+            print '%s not in %s. skipping submodules'%(repo,c.SUBMODULES)
+            return
         submodules = c.SUBMODULES[repo]
+        print 'working through submodules %s'%submodules
         for sm in submodules:
+            if sm['repo'] not in self.completed_lst:
+                print 'skipping submodule %s, as it is not touched by this merge.'%sm['repo']
+                continue
             print 'handling submodule %s'%sm
             smpath = os.path.join(c.REPODIR,repo,sm['path'])
             smdir = os.path.dirname(smpath)
@@ -123,12 +129,18 @@ class AutoMerger(object):
                 results.append(sm)
         return results    
     completed=[]
+    completed_lst=[]
     screwed_up=[]
     def single_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
         return self.perform_merge('single',repo,from_branch,to_branch,lastcommits,message)
     def standard_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
         return self.perform_merge('standard',repo,from_branch,to_branch,lastcommits,message)
+    def none_merge(self,merge_type,repo,from_branch,to_branch,lastcommits,message):
+        print 'none_merge on %s/%s: not doing anything'%(repo,from_branch)
+        rt= {'torun':None,'sm_updated':None,'conflicts':None}
+        return rt
     confre = re.compile('^CONFLICT \((?P<conflict_type>.*)\): (?P<conflict_message>.*)$')
+    
     def extract_conflicts(self,op):
         rt=[]
         for line in op.split('\n'):
@@ -192,15 +204,21 @@ class AutoMerger(object):
 
         lastcommits={}
         for br in [from_branch,to_branch]:
-            if not self.checkout(repo,br):
-                self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed.'})
-                return
-            lastcommits[br]=self.get_last_commits(repo,br,commits=20)
+            if br:
+                if not self.checkout(repo,br):
+                    self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed.'})
+                    return
+                lastcommits[br]=self.get_last_commits(repo,br,commits=20)
+            else:
+                lastcommits[br]=None
 
         self.checkout(repo,from_branch)
         if self.got_untracked(repo):
             raise Exception('has untracked files.')
-        target_last_commit = lastcommits[to_branch][0]
+        if to_branch:
+            target_last_commit = lastcommits[to_branch][0]
+        else:
+            target_last_commit = None
         source_last_commit = lastcommits[from_branch][0]
         #check presence of last target commit  on source only when merge type is "single"
         if self.args.merge_type=='single':
@@ -222,15 +240,21 @@ class AutoMerger(object):
             if target_last_commit==source_last_commit:
                 raise Exception( 'WARNING: branches %s and %s are identical.'%(from_branch,to_branch))
 
-            assert self.args.merge_type in ['single','standard']
+            assert self.args.merge_type in ['single','standard','none']
             methname = '%s_merge'%self.args.merge_type
             meth = getattr(self,methname)
             print 'invoking %s'%methname
             rt = meth(self,repo,from_branch,to_branch,lastcommits,message)
             print 'done.'
             torun = rt['torun'] ; sm_updated = rt['sm_updated'] ; conflicts = rt['conflicts']
-            rev = self.get_last_commits(repo,to_branch,1)[0]
-            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':lastcommits[to_branch][0],'new_rev':rev,'submodules_updated':sm_updated,'conflicts':conflicts})
+            if self.args.merge_type=='none': 
+                rev=lastcommits[from_branch][0]
+                prev_rev = None
+            else:
+                rev = self.get_last_commits(repo,to_branch,1)[0]
+                prev_rev = lastcommits[to_branch][0]
+            self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':prev_rev,'new_rev':rev,'submodules_updated':sm_updated,'conflicts':conflicts})
+            self.completed_lst.append(repo)
         except Exception,e:
             import traceback
             self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e),'traceback':traceback.format_exc()})
@@ -256,7 +280,7 @@ class AutoMerger(object):
     def cmdrun(self):
         optparser = argparse.ArgumentParser(description='merge branches across multiple repos with a single commit.', add_help=True)
         optparser.add_argument('--from', action='store', dest='from_branch',help='source branch',required=False)
-        optparser.add_argument('--to', action='store', dest='to_branch',help='target branch',required=True)
+        optparser.add_argument('--to', action='store', dest='to_branch',help='target branch',required=False)
         optparser.add_argument('--type', action='store', dest='merge_type',help='type of merge. one of single,standard',required=True)
         optparser.add_argument('--message', action='store', dest='message',help='commit message for the merge commit')
         optparser.add_argument('--repo', action='append', dest='repos',help='specify specific repository(ies) to merge. repeatable.')
@@ -273,6 +297,8 @@ class AutoMerger(object):
 
         if not args.from_branch and not args.repos: 
             raise Exception('--from is required if source branch is not specified per-repository in --repo')
+        if args.merge_type!='none' and not args.to_branch:
+            raise Exception('--to is required if merge type is other than "none"')
 
         if args.allrepos:
             dorepos = [{'from_branch':args.from_branch,'repo':repo} for repo in c.REPOS]
