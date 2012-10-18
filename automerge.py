@@ -186,6 +186,15 @@ class AutoMerger(object):
         elif merge_type=='standard':
             print 'regular merge done. doing submodules'
             sm_updated = self.handle_submodules(repo,to_branch)
+        #check if there are any differences
+        cmd = 'git diff {from_branch} {to_branch}'.format(from_branch=from_branch,to_branch=to_branch)
+        cmd+= " | " + """ egrep -v '^(\+\+\+|\-\-\-|@@|(\-|\+)Subproject|diff|index)'"""
+        st,op = gso(repo,cmd) ; assert st in [0,256],"%s => %s"%(cmd,st)
+        opl = len(op.split('\n'))
+        if opl>1:
+            print op
+            raise Exception('got a difference of %s lines between branches after merge.'%opl)
+        
         pushcmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)            
         if self.args.nopush:
             print '#please execute in %s:'%repo
@@ -206,7 +215,7 @@ class AutoMerger(object):
         for br in [from_branch,to_branch]:
             if br:
                 if not self.checkout(repo,br):
-                    self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout failed.'})
+                    self.aborted.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'reason':'initial checkout of %s failed.'%br})
                     return
                 lastcommits[br]=self.get_last_commits(repo,br,commits=20)
             else:
@@ -221,8 +230,9 @@ class AutoMerger(object):
             target_last_commit = None
         source_last_commit = lastcommits[from_branch][0]
         #check presence of last target commit  on source only when merge type is "single"
+
         if self.args.merge_type=='single':
-            if target_last_commit not in lastcommits[from_branch]:
+            if target_last_commit not in lastcommits[from_branch] and not self.args.nolastcheck:
                 print 'target branch ({target_branch}) last commit {target_last_commit} is not present in source branch {source_branch}'\
                     .format(target_branch=to_branch,
                             source_branch=from_branch,
@@ -291,6 +301,7 @@ class AutoMerger(object):
         optparser.add_argument('--push',action='store_true',dest='push',help='push to origin after merge is done locally.')
         optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories instead of specifying via --repo')
         optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all locally cached repos.')
+        optparser.add_argument('--nolastcheck',action='store_true',dest='nolastcheck',help='do not check for presence of last commits on source branches (DANGEROUS).')
         args = optparser.parse_args()
 
         self.setargs(args)
