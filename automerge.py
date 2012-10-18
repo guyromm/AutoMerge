@@ -111,7 +111,7 @@ class AutoMerger(object):
             cwd = os.getcwd()
             localsource = os.path.join(cwd,c.REPODIR,sm['repo'])
             #print 'inspecting %s'%smpath
-            assert os.path.isdir(smpath) ; 
+            assert os.path.isdir(smpath),"%s is not a directory"%smpath
             st,op = getstatusoutput('ls %s'%smpath) ; assert st==0 
             assert len(op.split("\n"))<2,"bad length of\n%s"%op
             formatargs = {'smpath':smpath,'smdir':smdir,'localsource':localsource,'basename':bn,'target_branch':to_branch}
@@ -187,13 +187,14 @@ class AutoMerger(object):
             print 'regular merge done. doing submodules'
             sm_updated = self.handle_submodules(repo,to_branch)
         #check if there are any differences
-        cmd = 'git diff {from_branch} {to_branch}'.format(from_branch=from_branch,to_branch=to_branch)
-        cmd+= " | " + """ egrep -v '^(\+\+\+|\-\-\-|@@|(\-|\+)Subproject|diff|index)'"""
-        st,op = gso(repo,cmd) ; assert st in [0,256],"%s => %s"%(cmd,st)
-        opl = len(op.split('\n'))
-        if opl>1:
-            print op
-            raise Exception('got a difference of %s lines between branches after merge.'%opl)
+        if not self.args.nocheckdiff:
+            cmd = 'git diff {from_branch} {to_branch}'.format(from_branch=from_branch,to_branch=to_branch)
+            cmd+= " | " + """ egrep -v '^(\+\+\+|\-\-\-|@@|(\-|\+)Subproject|diff|index)'"""
+            st,op = gso(repo,cmd) ; assert st in [0,256],"%s => %s"%(cmd,st)
+            opl = len(op.split('\n'))
+            if opl>1:
+                print op
+                raise Exception('got a difference of %s lines between branches after merge.'%opl)
         
         pushcmd = 'git push origin {target_branch}'.format(repo=repo,target_branch=to_branch)            
         if self.args.nopush:
@@ -266,6 +267,8 @@ class AutoMerger(object):
             self.completed.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'torun':torun,'prev_rev':prev_rev,'new_rev':rev,'submodules_updated':sm_updated,'conflicts':conflicts})
             self.completed_lst.append(repo)
         except Exception,e:
+            if self.args.nocatch:
+                raise
             import traceback
             self.screwed_up.append({'repo':repo,'source_branch':from_branch,'target_branch':to_branch,'error':str(e),'traceback':traceback.format_exc()})
 
@@ -302,6 +305,8 @@ class AutoMerger(object):
         optparser.add_argument('--allrepos',action='store_true',dest='allrepos',help='merge all repositories instead of specifying via --repo')
         optparser.add_argument('--purge',action='store_true',dest='purge',help='purge all locally cached repos.')
         optparser.add_argument('--nolastcheck',action='store_true',dest='nolastcheck',help='do not check for presence of last commits on source branches (DANGEROUS).')
+        optparser.add_argument('--nocheckdiff',action='store_true',dest='nocheckdiff',help='do not verify the absence of diff between branches post-merge. useful for standard merges.')
+        optparser.add_argument('--nocatch',action='store_true',dest='nocatch',help='do not catch exceptions. useful for debugging.')
         args = optparser.parse_args()
 
         self.setargs(args)
