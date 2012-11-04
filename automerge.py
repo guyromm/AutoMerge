@@ -211,18 +211,37 @@ class AutoMerger(object):
             return op.split('\n')
         return []
 
-    def run_pycheck(self, repo):
+    def run_linters(self, repo):
         output = {}
+        ofns = {}
+        for cmd in ['jshint','pyflakes','pep8']:
+            ofns[cmd]='%s-%s.log'%(repo,cmd)
+            if os.path.exists(ofns[cmd]): os.unlink(ofns[cmd])
+            
         for file2check in self.get_diff_files(repo):
+            if not os.path.exists(os.path.join(c.REPODIR,repo,file2check)): continue
+            if file2check.endswith('.js'):
+                cmd='jshint'
+                mycmd = 'jshint %s'%file2check
+                st,op = gso(repo,mycmd) #; assert st in [0,256],"%s returned %s"%(mycmd,st)
+
+                lines = [ln for ln in op.split('\n')[0:-1] if ln!='']
+                ofn = ofns[cmd]
+                ofp = open(ofn,'a') ; ofp.write('\n'.join(lines)) ; ofp.close()
+                if cmd not in output: output[cmd]=0
+                output[cmd]+=len(lines)
+
             if file2check.endswith('.py'):
                 for cmd in ['pep8', 'pyflakes']:
-                    st, op = gso(repo, cmd + ' ' + file2check)
+                    mycmd = cmd + ' ' + file2check
+                    st, op = gso(repo, mycmd) #; assert st in [0,256],"%s returned %s"%(mycmd,st)
                     if st == 256:
-                        if not output.get(cmd):
-                            output[cmd] = []
-                        output[cmd].extend(op.split('\n'))
-        if output:
-            sys.exit(output)
+                        ofn = ofns[cmd]
+                        ofp = open(ofn,'a') ; ofp.write(op+'\n') ; ofp.close()
+                        if cmd not in output: output[cmd]=0
+                        output[cmd]+=len(op.split('\n'))
+        return output
+        #if output: sys.exit(output)
 
     def perform_merge(
             self, merge_type, repo, from_branch, to_branch, lastcommits, message):
@@ -254,9 +273,10 @@ class AutoMerger(object):
             sm_updated = self.handle_submodules(repo, to_branch)
 
             print 'reset succesful.'
-            if self.args.pycheck:
+            linter_result=None
+            if self.args.linters:
                 print "Run linter for python source"
-                self.run_pychek(repo)
+                linter_result = self.run_linters(repo)
             cmd = 'git add . && git add -u'.format(repo=repo)
             print 'running %s' % cmd
             st, op = gso(repo, cmd)
@@ -298,6 +318,7 @@ class AutoMerger(object):
             assert st == 0
             torun = None
         rt = {'torun': torun, 'sm_updated': sm_updated, 'conflicts': conflicts}
+        if linter_result: rt['linters']=linter_result
         return rt
     aborted = []
 
@@ -377,15 +398,17 @@ class AutoMerger(object):
             else:
                 rev = self.get_last_commits(repo, to_branch, 1)[0]
                 prev_rev = lastcommits[to_branch][0]
-            self.completed.append(
-                {'repo': repo,
+            apnd = {'repo': repo,
                  'source_branch': from_branch,
                  'target_branch': to_branch,
                  'torun': torun,
                  'prev_rev': prev_rev,
                  'new_rev': rev,
                  'submodules_updated': sm_updated,
-                 'conflicts': conflicts})
+                 'conflicts': conflicts}
+            if 'linters' in rt: apnd['linters']=rt['linters']
+                
+            self.completed.append(apnd)
             self.completed_lst.append(repo)
         except Exception, e:
             import traceback
@@ -480,8 +503,8 @@ class AutoMerger(object):
                  'commits on source branches (DANGEROUS).')
 
         optparser.add_argument(
-            '--pycheck', action='store_true', dest='pycheck',
-            help='Check all changed python source.')
+            '--linters', action='store_true', dest='linters',
+            help='Run linters on modified files.')
 
         optparser.add_argument(
             '--nocheckdiff', action='store_true', dest='nocheckdiff',
