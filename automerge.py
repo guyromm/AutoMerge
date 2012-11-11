@@ -207,9 +207,15 @@ class AutoMerger(object):
     def get_diff_files(self, repo):
         cmd = 'git diff --name-only'
         st, op = gso(repo, cmd)
+        #print op
+        rt=[]
         if st == 0:
-            return op.split('\n')
-        return []
+            rt+= op.split('\n')
+        cmd = 'git ls-files --other --exclude-standard'
+        st,op = gso(repo,cmd)
+        if st ==0:
+            rt+= op.split('\n')
+        return set(rt)
 
     def run_linters(self, repo):
         output = {}
@@ -217,23 +223,26 @@ class AutoMerger(object):
         for cmd in ['jshint','pyflakes','pep8']:
             ofns[cmd]='%s-%s.log'%(repo,cmd)
             if os.path.exists(ofns[cmd]): os.unlink(ofns[cmd])
-            
-        for file2check in self.get_diff_files(repo):
+        dfiles = self.get_diff_files(repo)
+        print('%s diff files'%len(dfiles))
+        for file2check in dfiles:
             if not os.path.exists(os.path.join(c.REPODIR,repo,file2check)): continue
             if file2check.endswith('.js'):
                 cmd='jshint'
                 mycmd = 'jshint %s'%file2check
+                print mycmd
                 st,op = gso(repo,mycmd) #; assert st in [0,256],"%s returned %s"%(mycmd,st)
 
                 lines = [ln for ln in op.split('\n')[0:-1] if ln!='']
                 ofn = ofns[cmd]
-                ofp = open(ofn,'a') ; ofp.write('\n'.join(lines)) ; ofp.close()
+                ofp = open(ofn,'a') ; ofp.write('\n'.join(lines)+'\n') ; ofp.close()
                 if cmd not in output: output[cmd]=0
                 output[cmd]+=len(lines)
 
             if file2check.endswith('.py'):
                 for cmd in ['pep8', 'pyflakes']:
                     mycmd = cmd + ' ' + file2check
+                    print mycmd
                     st, op = gso(repo, mycmd) #; assert st in [0,256],"%s returned %s"%(mycmd,st)
                     if st == 256:
                         ofn = ofns[cmd]
@@ -337,7 +346,7 @@ class AutoMerger(object):
                          'target_branch': to_branch, 
                          'reason': 'initial checkout of %s failed.' % br})
                     return
-                lastcommits[br] = self.get_last_commits(repo, br, commits=20)
+                lastcommits[br] = self.get_last_commits(repo, br, commits=80)
             else:
                 lastcommits[br] = None
 
