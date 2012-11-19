@@ -297,7 +297,7 @@ class AutoMerger(object):
             cmd = 'git commit -m "{message}"'.format(
                 repo=repo, message=message)
             st, op = gso(repo, cmd)
-            assert st == 0
+            assert st == 0,"commit failed with %s => %s\n%s"%(cmd,st,op)
             print 'succesfully re-merged.'
 
         elif merge_type == 'standard':
