@@ -268,7 +268,7 @@ class AutoMerger(object):
         else:
             assert st == 0, "%s returned %s:\n%s" % (cmd, st, op)
         target_last_commit = lastcommits[to_branch][0]
-
+        linter_result=None
         if merge_type == 'single':
             print 'regular merge done. resetting to last %s commit %s'\
                   % (to_branch, target_last_commit)
@@ -282,7 +282,6 @@ class AutoMerger(object):
             sm_updated = self.handle_submodules(repo, to_branch)
 
             print 'reset succesful.'
-            linter_result=None
             if self.args.linters:
                 print "Run linter for python source"
                 linter_result = self.run_linters(repo)
