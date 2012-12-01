@@ -204,8 +204,9 @@ class AutoMerger(object):
                      'fname': fname})
         return rt
 
-    def get_diff_files(self, repo):
+    def get_diff_files(self, repo,withbranch=None):
         cmd = 'git diff --name-only'
+        if withbranch: cmd+=' %s'%withbranch
         st, op = gso(repo, cmd)
         #print op
         rt=[]
@@ -217,13 +218,13 @@ class AutoMerger(object):
             rt+= op.split('\n')
         return set(rt)
 
-    def run_linters(self, repo):
+    def run_linters(self, repo,withbranch=None):
         output = {}
         ofns = {}
         for cmd in ['jshint','pyflakes','pep8']:
             ofns[cmd]='%s-%s.log'%(repo,cmd)
             if os.path.exists(ofns[cmd]): os.unlink(ofns[cmd])
-        dfiles = self.get_diff_files(repo)
+        dfiles = self.get_diff_files(repo,withbranch=withbranch)
         print('%s diff files'%len(dfiles))
         for file2check in dfiles:
             if not os.path.exists(os.path.join(c.REPODIR,repo,file2check)): continue
@@ -295,12 +296,16 @@ class AutoMerger(object):
             cmd = 'git commit -m "{message}"'.format(
                 repo=repo, message=message)
             st, op = gso(repo, cmd)
-            assert st == 0
+            assert st == 0,"commit failed with %s => %s\n%s"%(cmd,st,op)
             print 'succesfully re-merged.'
 
         elif merge_type == 'standard':
             print 'regular merge done. doing submodules'
             sm_updated = self.handle_submodules(repo, to_branch)
+            if self.args.linters:
+                print "Run linter for python source"
+                linter_result = self.run_linters(repo,withbranch=self.args.from_branch)
+
         #check if there are any differences
         if not self.args.nocheckdiff:
             cmd = 'git diff {from_branch} {to_branch}'.format(
@@ -313,6 +318,7 @@ class AutoMerger(object):
             if opl > 1:
                 print op
                 raise Exception('got a difference of %s lines between branches after merge.' % opl)
+
 
         pushcmd = 'git push origin {target_branch}'.format(
             repo=repo, target_branch=to_branch)
