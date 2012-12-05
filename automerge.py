@@ -322,7 +322,7 @@ class AutoMerger(object):
 
         pushcmd = 'git push origin {target_branch}'.format(
             repo=repo, target_branch=to_branch)
-        if self.args.nopush:
+        if not self.args.push or self.args.nopush:
             print '#please execute in %s:' % repo
             print cmd
             torun = 'cd %s && ' % (
