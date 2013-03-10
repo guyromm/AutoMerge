@@ -351,7 +351,7 @@ class AutoMerger(object):
                          'target_branch': to_branch, 
                          'reason': 'initial checkout of %s failed.' % br})
                     return
-                lastcommits[br] = self.get_last_commits(repo, br, commits=80)
+                lastcommits[br] = self.get_last_commits(repo, br, commits=100)
             else:
                 lastcommits[br] = None
 
@@ -467,12 +467,12 @@ class AutoMerger(object):
             required=False)
 
         optparser.add_argument(
-            '--to', action='store', dest='to_branch', help='target branch',
+            '--to', action='store', dest='to_branch', help='target branch',default=c.DEFAULT_TARGET_BRANCH,
             required=False)
 
         optparser.add_argument(
             '--type', action='store', dest='merge_type',
-            help='type of merge. one of single,standard', required=True)
+            help='type of merge. one of single,standard', default='single')
 
         optparser.add_argument(
             '--message', action='store', dest='message',
@@ -527,6 +527,8 @@ class AutoMerger(object):
             '--nocatch', action='store_true', dest='nocatch', 
             help='do not catch exceptions. useful for debugging.')
 
+        optparser.add_argument(
+            'repos',action='append',nargs='*')
         args = optparser.parse_args()
 
         self.setargs(args)
@@ -538,11 +540,21 @@ class AutoMerger(object):
         if args.merge_type != 'none' and not args.to_branch:
             raise Exception(
                 '--to is required if merge type is other than "none"')
+        if args.merge_type=='squash': args.merge_type='single'
+
+        erepos=[]
+        for r in args.repos:
+            if type(r)==list:
+                for l in r:
+                    erepos.append(l)
+            else:
+                erepos.append(r)
+
+        args.repos = erepos
 
         if args.allrepos:
             dorepos = [{'from_branch':args.from_branch, 
                         'repo':repo} for repo in c.REPOS]
-
         elif args.repos and len(args.repos):
             argrepos = {}
             for repo in args.repos:
