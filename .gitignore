@@ -2,4 +2,5 @@
 *pyc
 local_config.py
 repos
+cache
 .ropeproject/*
