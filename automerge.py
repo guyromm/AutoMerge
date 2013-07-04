@@ -38,7 +38,7 @@ class AutoMerger(object):
                 retrepos[repo] = nrepo
         return retrepos
 
-    def clone(self, repo):
+    def clone(self, repo, branches=[]):
         fqdn = self.repos[repo]
         repopath = os.path.join(c.REPODIR, repo)
         cachedir = os.path.join(c.CACHEDIR, repo)
@@ -56,7 +56,12 @@ class AutoMerger(object):
             st, op = getstatusoutput(cmd)
             assert st == 0, "%s returned %s: %s" % (cmd, st, op)
             print 'clone complete.'
-            
+        elif os.path.exists(cachedir):
+            for branch in set(branches):
+                print 'resetting cache %s to remote %s.'%(cachedir,branch)
+                cmd = 'cd %(cachedir)s && git checkout %(branch)s && git clean -f -d ; git reset --hard origin/%(branch)s'%{'cachedir':cachedir,'branch':branch}
+                st,op =getstatusoutput(cmd) ; assert st==0,"%s returned %s\n%s"%(cmd,st,op)
+
         if not self.args.noclone and not os.path.exists(repopath):
             print 'clone of %s.' % (repo)
             cmd = 'cd %s && ../git-new-workdir %s %s' % (c.REPODIR,os.path.join('..',cachedir),repo)
@@ -69,7 +74,7 @@ class AutoMerger(object):
             st, op = gso(repo, cmd)
             assert st == 0, "%s returned %s" % (cmd, st)
             print 'fetch -a complete.'
-
+       
     def checkout(self, repo, branch):
         cmd = 'git checkout {branch} '.format(repo=repo, branch=branch)
         if not self.args.nopull:
@@ -354,7 +359,7 @@ class AutoMerger(object):
     def merge(self, repo, from_branch, to_branch, message):
         print 'WORKING %s MERGE on %s %s => %s' % (self.args.merge_type.upper(), repo, from_branch, to_branch)
         assert repo in self.repos
-        self.clone(repo)
+        self.clone(repo,[from_branch,to_branch])
 
         lastcommits = {}
         for br in [from_branch, to_branch]:
