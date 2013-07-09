@@ -59,7 +59,7 @@ class AutoMerger(object):
         elif os.path.exists(cachedir):
             for branch in set(branches):
                 print 'resetting cache %s to remote %s.'%(cachedir,branch)
-                cmd = 'cd %(cachedir)s && git checkout %(branch)s && git clean -f -d ; git reset --hard origin/%(branch)s'%{'cachedir':cachedir,'branch':branch}
+                cmd = 'cd %(cachedir)s && git fetch -a && git checkout %(branch)s && git clean -f -d ; git reset --hard origin/%(branch)s'%{'cachedir':cachedir,'branch':branch}
                 st,op =getstatusoutput(cmd) ; assert st==0,"%s returned %s\n%s"%(cmd,st,op)
 
         if not self.args.noclone and not os.path.exists(repopath):
@@ -410,7 +410,10 @@ class AutoMerger(object):
                     'repo': repo,
                     'source_branch': from_branch,
                     'target_branch': to_branch,
-                    'reason': 'Missing last target commit on source.'.upper()})
+                    'reason': 'Missing last target commit on source.'.upper(),
+                    'reverse_cmd':'cd %(repodir)s && git checkout %(from_branch)s && git merge %(to_branch)s && git push origin %(from_branch)s && cd ../..'%{'repodir':'repos/%s'%repo,'from_branch':from_branch,'to_branch':to_branch}
+                    })
+                
                 return
         try:
             if not self.args.is_reverse and target_last_commit == source_last_commit:
