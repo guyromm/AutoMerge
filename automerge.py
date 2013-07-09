@@ -588,7 +588,7 @@ class AutoMerger(object):
                 erepos.append(r)
 
         args.repos = erepos
-
+        
         if args.allrepos:
             dorepos = [{'from_branch':args.from_branch, 
                         'repo':repo} for repo in c.REPOS]
@@ -603,12 +603,16 @@ class AutoMerger(object):
                     from_branch = args.from_branch
                 argrepos[repo] = from_branch
 
-            dorepos = []
+            dorepos = [] ; doing=[]
             for repo in c.REPOS:
                 if repo in argrepos:
                     dorepos.append(
                         {'from_branch': argrepos[repo], 
                                     'repo': repo})
+                    doing.append(repo)
+            dff = set(argrepos.keys())-set(doing)
+            if len(dff):
+                raise Exception('some repos unrecognized: %s'%dff)
         else:
             raise Exception('no repos or the --allrepos flag specified.')
 
