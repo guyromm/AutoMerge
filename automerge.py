@@ -59,7 +59,11 @@ class AutoMerger(object):
         elif os.path.exists(cachedir):
             for branch in set(branches):
                 print 'resetting cache %s to remote %s.'%(cachedir,branch)
-                cmd = 'cd %(cachedir)s && git fetch -a && git checkout %(branch)s && git clean -f -d ; git reset --hard origin/%(branch)s'%{'cachedir':cachedir,'branch':branch}
+                if len(branch)==40:
+                    prefix=''
+                else:
+                    prefix='origin/'
+                cmd = 'cd %(cachedir)s && git fetch -a && git checkout %(branch)s && git clean -f -d ; git reset --hard %(prefix)s%(branch)s'%{'cachedir':cachedir,'branch':branch,'prefix':prefix}
                 st,op =getstatusoutput(cmd) ; assert st==0,"%s returned %s\n%s"%(cmd,st,op)
 
         if not self.args.noclone and not os.path.exists(repopath):
@@ -76,8 +80,13 @@ class AutoMerger(object):
             print 'fetch -a complete.'
        
     def checkout(self, repo, branch):
-        cmd = 'git checkout {branch} '.format(repo=repo, branch=branch)
-        if not self.args.nopull:
+        if len(branch)==40:
+            prefix='--detach'
+        else:
+            prefix=''
+        cmd = 'git checkout {prefix} {branch} '.format(prefix=prefix,repo=repo, branch=branch)
+
+        if len(branch)!=40 and not self.args.nopull:
             cmd += '; git pull origin {branch}'.format(
                 repo=repo, branch=branch)
 
@@ -98,7 +107,8 @@ class AutoMerger(object):
     def get_last_commits(self, repo, branch, commits=1, with_message=False, path=False):
         if not path:
             curbranch = self.get_current_branch(repo)
-            assert curbranch == branch,"%s <> %s"%(curbranch,branch)
+            if len(branch)!=40:
+                assert curbranch == branch,"%s <> %s"%(curbranch,branch)
             assert repo
             assert branch
             pathgo = None
@@ -416,7 +426,7 @@ class AutoMerger(object):
                 
                 return
         try:
-            if not self.args.is_reverse and target_last_commit == source_last_commit:
+            if not self.args.is_reverse and target_last_commit == source_last_commit and not self.args.allowidentical:
                 raise Exception(
                     'WARNING: branches %s and %s are identical.'
                     % (from_branch, to_branch))
@@ -553,6 +563,10 @@ class AutoMerger(object):
         optparser.add_argument(
             '--linters', action='store_true', dest='linters',
             help='Run linters on modified files.')
+
+        optparser.add_argument(
+            '--allowidentical', action='store_true', dest='allowidentical',
+            help='Allow merge between identical branches.')
 
         optparser.add_argument(
             '--nocheckdiff', action='store_true', dest='nocheckdiff',
