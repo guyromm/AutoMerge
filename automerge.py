@@ -411,7 +411,7 @@ class AutoMerger(object):
                     'source_branch': from_branch,
                     'target_branch': to_branch,
                     'reason': 'Missing last target commit on source.'.upper(),
-                    'reverse_cmd':'cd %(repodir)s && git checkout %(from_branch)s && git merge %(to_branch)s && git push origin %(from_branch)s && cd ../..'%{'repodir':'repos/%s'%repo,'from_branch':from_branch,'to_branch':to_branch}
+                    'reverse_cmd':'cd %(repodir)s && git checkout %(from_branch)s && git merge %(to_branch)s && git log -1 && git push origin %(from_branch)s && cd ../..'%{'repodir':'repos/%s'%repo,'from_branch':from_branch,'to_branch':to_branch}
                     })
                 
                 return
