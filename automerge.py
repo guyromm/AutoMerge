@@ -325,8 +325,12 @@ class AutoMerger(object):
             print 'added all files and deletions for commit.'
             if not message:
                 raise Exception('--message not specified in single merge.')
-            cmd = 'git commit -m "{message}"'.format(
-                repo=repo, message=message)
+            if self.args.allowidentical:
+                emptyallow='--allow-empty'
+            else:
+                emptyallow=''
+            cmd = 'git commit {emptyallow} -m "{message}"'.format(
+                repo=repo, message=message,emptyallow=emptyallow)
             st, op = gso(repo, cmd)
             assert st == 0,"commit failed with %s => %s\n%s"%(cmd,st,op)
             print 'succesfully re-merged.'
@@ -382,7 +386,7 @@ class AutoMerger(object):
                          'reason': 'initial checkout of %s failed.' % br})
                     return
                 #print('supposedly checkout out %s / %s'%(repo,br))
-                lastcommits[br] = self.get_last_commits(repo, br, commits=100)
+                lastcommits[br] = self.get_last_commits(repo, br, commits=c.REVS_TO_CHECK_BACK)
             else:
                 lastcommits[br] = None
 
