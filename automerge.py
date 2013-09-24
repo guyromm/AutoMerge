@@ -114,7 +114,7 @@ class AutoMerger(object):
             pathgo = None
         else:
             pathgo = path
-        cmd = 'git log --pretty=oneline | head -{commits}'.format(
+        cmd = 'git log --pretty=oneline --no-color| head -{commits}'.format(
             repo=repo, commits=commits)
         st, op = gso(repo, cmd, path=pathgo)
         assert st == 0
@@ -310,7 +310,7 @@ class AutoMerger(object):
             cmd = 'git reset {target_last_commit}'.format(
                 repo=repo, target_last_commit=target_last_commit)
             st, op = gso(repo, cmd)
-            assert st == 0
+            assert st == 0, op
 
             sm_updated = self.handle_submodules(repo, to_branch)
 
