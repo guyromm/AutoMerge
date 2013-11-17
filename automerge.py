@@ -84,7 +84,7 @@ class AutoMerger(object):
             prefix='--detach'
         else:
             prefix=''
-        cmd = 'git checkout {prefix} {branch} '.format(prefix=prefix,repo=repo, branch=branch)
+        cmd = 'git checkout --force {prefix} {branch} '.format(prefix=prefix,repo=repo, branch=branch)
 
         if len(branch)!=40 and not self.args.nopull:
             cmd += '; git pull origin {branch}'.format(
