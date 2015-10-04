@@ -287,8 +287,8 @@ class AutoMerger(object):
         print 'commencing %s merge %s => %s.'\
               % (merge_type, from_branch, to_branch)
         self.checkout(repo, to_branch)
-        cmd = 'git merge {source_branch}'.format(
-            repo=repo, source_branch=from_branch)
+        cmd = 'git merge {squash_arg} {source_branch}'.format(
+            repo=repo, source_branch=from_branch,squash_arg = (merge_type=='single' and '--squash' or ''))
         st, op = gso(repo, cmd)
 
         #in standard merges we are explicit about conflicts
@@ -307,22 +307,13 @@ class AutoMerger(object):
                   % (to_branch, target_last_commit)
             if self.got_untracked(repo):
                 raise Exception('got untracked files in single merge.')
-            cmd = 'git reset {target_last_commit}'.format(
-                repo=repo, target_last_commit=target_last_commit)
-            st, op = gso(repo, cmd)
-            assert st == 0, op
 
             sm_updated = self.handle_submodules(repo, to_branch)
 
-            print 'reset succesful.'
+            #print 'reset succesful.'
             if self.args.linters:
                 print "Run linter for python source"
                 linter_result = self.run_linters(repo)
-            cmd = 'git add . && git add -u'.format(repo=repo)
-            print 'running %s' % cmd
-            st, op = gso(repo, cmd)
-            assert st == 0
-            print 'added all files and deletions for commit.'
             if not message:
                 raise Exception('--message not specified in single merge.')
             if self.args.allowidentical:
