@@ -173,7 +173,6 @@ class AutoMerger(object):
                 'basename': bn,
                 'target_branch': to_branch,
             }
-
             cmd1 = 'cd {smdir} && rm -rf {basename} '\
                    '&& git clone {localsource} {basename} '\
                    '&& cd {basename}'.format(**formatargs)
@@ -631,9 +630,17 @@ class AutoMerger(object):
                 repobj['from_branch'] = args.to_branch
                 args.to_branch = inter
                 print 'IS REVERSE: %s -> %s'%(repobj['from_branch'],args.to_branch)
+            # determine whether to_branch gets modified as a result of this repo being a submodule.
+            to_branch_override = None
+            for m,sms in c.SUBMODULES.items():
+                for sm in sms:
+                    if sm['repo']==repobj['repo'] and sm.get('target_branch_mask') and m in [ro['repo'] for ro in dorepos]:
+                        assert not to_branch_override,"%s already set for %s"%(to_branch_override,repobj['repo'])
+                        to_branch_override=sm.get('target_branch_mask')%args.to_branch
+            to_branch = to_branch_override and to_branch_override or args.to_branch
             self.merge(
                 repobj['repo'], repobj['from_branch'],
-                args.to_branch, args.message)
+                to_branch, args.message)
         self.print_results()
 
 if __name__ == '__main__':
