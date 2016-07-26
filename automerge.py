@@ -142,7 +142,7 @@ class AutoMerger(object):
         else:
             return False
 
-    def handle_submodules(self, repo, to_branch):
+    def handle_submodules(self, repo, to_branch,apndt):
         results = []
         if repo not in c.SUBMODULES:
             print '%s not in %s. skipping submodules' % (repo, c.SUBMODULES)
@@ -173,9 +173,17 @@ class AutoMerger(object):
                 'basename': bn,
                 'target_branch': to_branch,
             }
+            #generic "retrieve latest branch of submodule" cmd
             cmd1 = 'cd {smdir} && rm -rf {basename} '\
                    '&& git clone {localsource} {basename} '\
                    '&& cd {basename}'.format(**formatargs)
+            if len(apndt) and repo== apndt['repo'] and apndt.get('submodule_issues') and sm['repo'] in apndt['submodule_issues']:
+                # specific retrieve submodule of commit xyz cmd
+                smi = apndt['submodule_issues'][sm['repo']]
+                cmd1 = 'cd %(repodir)s && git update-index --cacheinfo 160000 %(rev)s %(pth)s'%{'repodir':os.path.join(c.REPODIR,repo),
+                                                                                                'rev':smi['correct_new_rev'],
+                                                                                                'pth':smi['path']}
+
             st, op = getstatusoutput(cmd1)
             assert st == 0, "%s returned %s: %s" % (cmd1, st, op)
             cmd2 = 'cd {smpath} '\
@@ -299,6 +307,14 @@ class AutoMerger(object):
         else:
             assert st == 0, "%s returned %s:\n%s" % (cmd, st, op)
 
+        apndt = {'repo':repo}
+        apndt = self.check_submodules_revs(apndt)
+        if 'submodule_issues' in apndt:
+            for smn,smi in apndt['submodule_issues'].items():
+                cmd = 'git update-index --cacheinfo 160000 %(rev)s %(pth)s'%{'rev':smi['correct_new_rev'],'pth':smi['path']}
+                st,op = gso(apndt['repo'],cmd)
+                print '%s: %s'%(apndt['repo'],cmd)
+                assert st==0
         target_last_commit = lastcommits[to_branch][0]
         linter_result=None
         if merge_type == 'single':
@@ -307,7 +323,7 @@ class AutoMerger(object):
             if self.got_untracked(repo):
                 raise Exception('got untracked files in single merge.')
 
-            sm_updated = self.handle_submodules(repo, to_branch)
+            sm_updated = self.handle_submodules(repo, to_branch,apndt)
 
             #print 'reset succesful.'
             if self.args.linters:
@@ -327,7 +343,7 @@ class AutoMerger(object):
 
         elif merge_type == 'standard':
             print 'regular merge done. doing submodules'
-            sm_updated = self.handle_submodules(repo, to_branch)
+            sm_updated = self.handle_submodules(repo, to_branch,apndt)
             if self.args.linters:
                 print "Run linter for python source"
                 linter_result = self.run_linters(repo,withbranch=self.args.from_branch)
@@ -359,6 +375,33 @@ class AutoMerger(object):
         if linter_result: rt['linters']=linter_result
         return rt
     aborted = []
+    def check_submodules_revs(self,apnd):
+        # 1. do i have any submodules?
+        repo = apnd['repo']
+        if repo in c.SUBMODULES:
+            mysubs = c.SUBMODULES[repo]
+            # 2. are my submodules participating in this merge?
+            for mysub in mysubs:
+                if mysub['repo'] in [dr['repo'] for dr in self.dorepos]:
+                    # 3. check whether this module's new_rev matches the one that is used in fact in the submodule pointer.
+                    smdir = os.path.join(c.REPODIR,repo,mysub['path'])
+                    assert os.path.exists(smdir)
+                    cmd = 'git submodule status %(smdir)s'%{'smdir':mysub['path']}
+                    st,op = gso(repo,cmd)
+                    assert st==0
+                    mycmpl = [cmpl for cmpl in self.completed if cmpl['repo']==mysub['repo']]
+                    assert len(mycmpl)==1,"%s submodule %s is not in completed"%(repo,mysub['repo'])
+                    mycmpl = mycmpl[0]
+                    new_rev = mycmpl['new_rev']
+                    new_rev_real = op.strip('+-\n ').split(' ')[0]
+                    if new_rev!=new_rev_real:
+                        if 'submodule_issues' not in apnd: apnd['submodule_issues']={}
+                        apnd['submodule_issues'][mysub['repo']]={'repo':repo,
+                                                                 'path':mysub['path'],
+                                                                 'submodule':mysub['repo'],
+                                                                 'correct_new_rev':new_rev,
+                                                                 'incrrct_new_rev':new_rev_real}
+        return apnd
 
     def merge(self, repo, from_branch, to_branch, message):
         print 'WORKING %s MERGE on %s %s => %s' % (self.args.merge_type.upper(), repo, from_branch, to_branch)
@@ -449,7 +492,11 @@ class AutoMerger(object):
                  'submodules_updated': sm_updated,
                  'conflicts': conflicts}
             if 'linters' in rt: apnd['linters']=rt['linters']
-            if 'conflicts' in apnd and apnd['conflicts']:
+            # check whether any of my submodules have "new_rev"s different from those of the submodules themselves
+            apnd = self.check_submodules_revs(apnd)
+
+
+            if 'conflicts' in apnd and apnd['conflicts'] or 'submodule_issues' in apnd:
                 self.screwed_up.append(apnd)
             else:
                 self.completed.append(apnd)
@@ -623,7 +670,7 @@ class AutoMerger(object):
                 raise Exception('some repos unrecognized: %s'%dff)
         else:
             raise Exception('no repos or the --allrepos flag specified.')
-
+        self.dorepos = dorepos
         for repobj in dorepos:
             if args.is_reverse:
                 inter = repobj['from_branch']
