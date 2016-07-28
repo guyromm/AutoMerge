@@ -163,9 +163,7 @@ class AutoMerger(object):
             #print 'inspecting %s'%smpath
 
             assert os.path.isdir(smpath), "%s is not a directory" % smpath
-            st, op = getstatusoutput('ls %s' % smpath)
-            assert st == 0
-            assert len(op.split("\n")) < 2, "bad length of\n%s" % op
+
             formatargs = {
                 'smpath': smpath,
                 'smdir': smdir,
