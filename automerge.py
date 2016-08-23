@@ -306,7 +306,7 @@ class AutoMerger(object):
             assert st == 0, "%s returned %s:\n%s" % (cmd, st, op)
 
         apndt = {'repo':repo}
-        apndt = self.check_submodules_revs(apndt)
+        if merge_type=='single': apndt = self.check_submodules_revs(apndt)
         if 'submodule_issues' in apndt:
             for smn,smi in apndt['submodule_issues'].items():
                 cmd = 'git update-index --cacheinfo 160000 %(rev)s %(pth)s'%{'rev':smi['correct_new_rev'],'pth':smi['path']}
@@ -491,7 +491,9 @@ class AutoMerger(object):
                  'conflicts': conflicts}
             if 'linters' in rt: apnd['linters']=rt['linters']
             # check whether any of my submodules have "new_rev"s different from those of the submodules themselves
-            apnd = self.check_submodules_revs(apnd)
+            # do this only for squash commits!
+            if self.args.merge_type=='single':
+                apnd = self.check_submodules_revs(apnd)
 
 
             if 'conflicts' in apnd and apnd['conflicts'] or 'submodule_issues' in apnd:
