@@ -585,6 +585,10 @@ class AutoMerger(object):
             help='push to origin after merge is done locally.')
 
         optparser.add_argument(
+            '--list-repos',action='store_true',dest='list_repos',
+            help='Display a list of all repositories AutoMerge knows of')
+        
+        optparser.add_argument(
             '--allrepos', action='store_true', dest='allrepos',
             help='merge all repositories instead of specifying via --repo')
 
@@ -620,6 +624,14 @@ class AutoMerger(object):
             'repos',action='append',nargs='*')
         args = optparser.parse_args()
 
+        if args.list_repos:
+            dorepos = [{'from_branch':args.from_branch, 
+                        'repo':repo,
+                        'submodules':','.join([sm['repo'] for sm in c.SUBMODULES.get(repo,{})])} for repo in c.REPOS]
+            for r in dorepos:
+                print r['repo'],r['submodules']
+            return
+        
         self.setargs(args)
 
         if not args.from_branch and not args.repos:
