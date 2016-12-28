@@ -8,6 +8,8 @@ import sys
 import config as c
 
 
+hashre = re.compile('^([0-9a-f]{5,})$')
+
 def gso(repo=None, cmd=None, path=None):
     if repo is not None:
         repodir = os.path.join(c.REPODIR, repo)
@@ -59,7 +61,7 @@ class AutoMerger(object):
         elif os.path.exists(cachedir):
             for branch in set(branches):
                 print 'resetting cache %s to remote %s.'%(cachedir,branch)
-                if len(branch)==40:
+                if hashre.search(branch):
                     prefix=''
                 else:
                     prefix='origin/'
@@ -80,13 +82,13 @@ class AutoMerger(object):
             print 'fetch -a complete.'
        
     def checkout(self, repo, branch):
-        if len(branch)==40:
+        if hashre.search(branch):
             prefix='--detach'
         else:
             prefix=''
         cmd = 'git checkout --force {prefix} {branch} '.format(prefix=prefix,repo=repo, branch=branch)
 
-        if len(branch)!=40 and not self.args.nopull:
+        if not hashre.search(branch) and not self.args.nopull:
             cmd += '; git pull origin {branch}'.format(
                 repo=repo, branch=branch)
 
@@ -107,7 +109,7 @@ class AutoMerger(object):
     def get_last_commits(self, repo, branch, commits=1, with_message=False, path=False):
         if not path:
             curbranch = self.get_current_branch(repo)
-            if len(branch)!=40:
+            if not hashre.search(branch):
                 assert curbranch == branch,"%s <> %s"%(curbranch,branch)
             assert repo
             assert branch
@@ -679,6 +681,10 @@ class AutoMerger(object):
                     doing.append(repo)
             dff = set(argrepos.keys())-set(doing)
             if len(dff):
+                print 'argrepos',set(argrepos.keys())
+                print 'doing',set(doing)
+                print 'dff',dff
+                print 'args',args
                 raise Exception('some repos unrecognized: %s'%dff)
         else:
             raise Exception('no repos or the --allrepos flag specified.')
