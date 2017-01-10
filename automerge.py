@@ -1,24 +1,58 @@
 #!/usr/bin/env python
-from commands import getstatusoutput
+#from commands import getstatusoutput
+import subprocess
 import argparse
 import json
 import os
 import re
 import sys
 import config as c
-
+import contextlib
 
 hashre = re.compile('^([0-9a-f]{5,})$')
 
+
+
+class cd:
+    """Context manager for changing the current working directory"""
+    def __init__(self, newPath):
+        self.newPath = os.path.expanduser(newPath)
+        
+    def __enter__(self):
+        self.savedPath = os.getcwd()
+        print('changing dir to',self.newPath)
+        os.chdir(self.newPath)
+        
+    def __exit__(self, etype, value, traceback):
+        os.chdir(self.savedPath)
+                                                                
+                        
+def getstatusoutput(cmd,path=None):
+    ex = cmd #.split(' ')
+
+
+    try:
+        if path:
+            assert os.path.exists(path),"%s does not exist"%(path)
+            with cd(path):
+                print('executing in cd',cmd)
+                rt = subprocess.check_output(ex,shell=True)
+        else:
+            print('executing',cmd)        
+            rt = subprocess.check_output(ex,shell=True)
+    except subprocess.CalledProcessError as cpe:
+        return cpe.returncode,""
+    return 0,rt.decode('utf-8')
+
 def gso(repo=None, cmd=None, path=None):
+    assert cmd is not None    
+    chd=None
     if repo is not None:
         repodir = os.path.join(c.REPODIR, repo)
-        assert os.path.exists(repodir),"%s does not exist"%(repodir)
-        cmd = 'cd %s && %s' % (repodir, cmd)
+        chd = repodir
     elif path is not None:
-        cmd = 'cd %s && %s' % (path, cmd)
-    assert cmd is not None
-    return getstatusoutput(cmd)
+        chd = path
+    return getstatusoutput(cmd,path=chd)
 #make sure no extra files are merged
 #make sure that the source branch has all the commits of the target branch
 
@@ -46,40 +80,40 @@ class AutoMerger(object):
         cachedir = os.path.join(c.CACHEDIR, repo)
         if self.args.purge and os.path.exists(repopath):
             st, op = getstatusoutput("rm -rf %s" % repopath)
-            assert st == 0
-            print '%s purged.' % repo
+            assert st == 0,"rm -rf %s returned %s"%(repopatch,st)
+            print('%s purged.' % repo)
         if self.args.purge_cache and os.path.exists(cachedir):
             st, op = getstatusoutput("rm -rf %s" % cachedir)
             assert st == 0
-            print '%s purged.' % repo
+            print('%s purged.' % repo)
         if not os.path.exists(cachedir):
-            print 'initial clone of %s into CACHE.' % (repo)
-            cmd = 'cd %s && git clone %s' % (c.CACHEDIR, fqdn)
-            st, op = getstatusoutput(cmd)
+            print('initial clone of %s into CACHE.' % (repo))
+            cmd = 'git clone %s' % (fqdn)
+            st, op = getstatusoutput(cmd,path=c.CACHEDIR)
             assert st == 0, "%s returned %s: %s" % (cmd, st, op)
-            print 'clone complete.'
+            print('clone complete.')
         elif os.path.exists(cachedir):
             for branch in set(branches):
-                print 'resetting cache %s to remote %s.'%(cachedir,branch)
+                print('resetting cache %s to remote %s.'%(cachedir,branch))
                 if hashre.search(branch):
                     prefix=''
                 else:
                     prefix='origin/'
-                cmd = 'cd %(cachedir)s && git fetch -a && git checkout %(branch)s && git clean -f -d ; git reset --hard %(prefix)s%(branch)s'%{'cachedir':cachedir,'branch':branch,'prefix':prefix}
-                st,op =getstatusoutput(cmd) ; assert st==0,"%s returned %s\n%s"%(cmd,st,op)
+                cmd = 'git fetch -a && git checkout %(branch)s && git clean -f -d ; git reset --hard %(prefix)s%(branch)s'%{'cachedir':cachedir,'branch':branch,'prefix':prefix}
+                st,op =getstatusoutput(cmd,path=cachedir) ; assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
 
         if not self.args.noclone and not os.path.exists(repopath):
-            print 'clone of %s.' % (repo)
+            print('clone of %s.' % (repo))
             cmd = 'cd %s && ../git-new-workdir %s %s' % (c.REPODIR,os.path.join('..',cachedir),repo)
             st, op = getstatusoutput(cmd)
             assert st == 0, "%s returned %s: %s" % (cmd, st, op)
-            print 'clone complete.'
+            print('clone complete.')
         elif not self.args.nofetch:
-            print 'fetch -a of %s' % repo
+            print('fetch -a of %s' % repo)
             cmd = 'git fetch -a'
             st, op = gso(repo, cmd)
             assert st == 0, "%s returned %s" % (cmd, st)
-            print 'fetch -a complete.'
+            print('fetch -a complete.')
        
     def checkout(self, repo, branch):
         if hashre.search(branch):
@@ -95,7 +129,7 @@ class AutoMerger(object):
         st, op = gso(repo, cmd)
         assert st in [0, 256], "%s returned %s" % (cmd, st)
         if st == 256:
-            print '%s does not have branch %s' % (repo, branch)
+            print('%s does not have branch %s' % (repo, branch))
             return False
         return True
 
@@ -103,14 +137,15 @@ class AutoMerger(object):
         cmd = 'git branch | grep "^*"'
         st, op = gso(repo, cmd)
         assert st == 0
-        curbranch = op.split('* ')[1].split('\n')[0]
-        return curbranch
+        opall = op.split('* ')
+        curbranch = opall[1].split("\n")[0]
+        return str(curbranch).strip()
 
     def get_last_commits(self, repo, branch, commits=1, with_message=False, path=False):
         if not path:
-            curbranch = self.get_current_branch(repo)
+            curbranch = self.get_current_branch(repo).strip()
             if not hashre.search(branch):
-                assert curbranch == branch,"%s <> %s"%(curbranch,branch)
+                assert curbranch == branch,"'%s' <> '%s'"%(curbranch,branch)
             assert repo
             assert branch
             pathgo = None
@@ -122,6 +157,7 @@ class AutoMerger(object):
         assert st == 0
         commits = []
         for ln in op.split('\n'):
+            if not len(ln.strip()): continue
             if with_message:
                 spl = ln.split(' ')
                 commitid = spl[0]
@@ -137,9 +173,9 @@ class AutoMerger(object):
         st, op = gso(repo, cmd)
         assert st == 0
         if 'Untracked files' in op:
-            print 'repo {repo} has untracked files in branch {branch}'.format(
-                repo=repo, branch=self.get_current_branch(repo))
-            print '\n'.join(op.split('Untracked files:')[1].split('\n')[3:])
+            print('repo {repo} has untracked files in branch {branch}'.format(
+                repo=repo, branch=self.get_current_branch(repo)))
+            print('\n'.join(op.split('Untracked files:')[1].split('\n')[3:]))
             return True
         else:
             return False
@@ -147,22 +183,21 @@ class AutoMerger(object):
     def handle_submodules(self, repo, to_branch,apndt):
         results = []
         if repo not in c.SUBMODULES:
-            print '%s not in %s. skipping submodules' % (repo, c.SUBMODULES)
+            print('%s not in %s. skipping submodules' % (repo, c.SUBMODULES))
             return
         submodules = c.SUBMODULES[repo]
-        print 'working through submodules %s' % submodules
+        print('working through submodules %s' % submodules)
         for sm in submodules:
             if sm['repo'] not in self.completed_lst:
-                print 'skipping submodule %s,'\
-                      'as it is not touched by this merge.' % sm['repo']
+                print('skipping submodule %s,'\
+                      'as it is not touched by this merge.' % sm['repo'])
                 continue
-            print 'handling submodule %s' % sm
+            print('handling submodule %s' % sm)
             smpath = os.path.join(c.REPODIR, repo, sm['path'])
             smdir = os.path.dirname(smpath)
             bn = os.path.basename(smpath)
             cwd = os.getcwd()
             localsource = os.path.join(cwd, c.REPODIR, sm['repo'])
-            #print 'inspecting %s'%smpath
 
             assert os.path.isdir(smpath), "%s is not a directory" % smpath
 
@@ -191,15 +226,15 @@ class AutoMerger(object):
             st, op = getstatusoutput(cmd2)
             assert st in [0, 256], "%s returned %s: %s" % (cmd2, st, op)
             if st == 256:
-                print 'looks like %s does not have our branch %s. '\
-                      'reverting' % (sm['path'], to_branch)
+                print('looks like %s does not have our branch %s. '\
+                      'reverting' % (sm['path'], to_branch))
                 cmd3 = "cd {smdir} && rm -rf {basename} "\
                        "&& mkdir {basename}".format(**formatargs)
                 st, op = getstatusoutput(cmd3)
                 assert st == 0
             else:
-                print 'SUCCESFULLY UPDATED %s (%s) to branch %s'\
-                      % (sm['repo'], sm['path'], to_branch)
+                print('SUCCESFULLY UPDATED %s (%s) to branch %s'\
+                      % (sm['repo'], sm['path'], to_branch))
                 sm['new_rev'] = self.get_last_commits(
                     repo=None, branch=None, commits=1, path=smpath)[0]
                 results.append(sm)
@@ -220,7 +255,7 @@ class AutoMerger(object):
 
     def none_merge(
             self, merge_type, repo, from_branch, to_branch, lastcommits, message):
-        print 'none_merge on %s/%s: not doing anything' % (repo, from_branch)
+        print('none_merge on %s/%s: not doing anything' % (repo, from_branch))
         return {'torun': None, 'sm_updated': None, 'conflicts': None}
 
     confre = re.compile(
@@ -244,7 +279,6 @@ class AutoMerger(object):
         cmd = 'git diff --name-only'
         if withbranch: cmd+=' %s'%withbranch
         st, op = gso(repo, cmd)
-        #print op
         rt=[]
         if st == 0:
             rt+= op.split('\n')
@@ -267,7 +301,7 @@ class AutoMerger(object):
             if file2check.endswith('.js'):
                 cmd='jshint'
                 mycmd = 'jshint %s'%file2check
-                print mycmd
+                print(mycmd)
                 st,op = gso(repo,mycmd) #; assert st in [0,256],"%s returned %s"%(mycmd,st)
 
                 lines = [ln for ln in op.split('\n')[0:-1] if ln!='']
@@ -279,7 +313,7 @@ class AutoMerger(object):
             if file2check.endswith('.py'):
                 for cmd in ['pep8', 'pyflakes']:
                     mycmd = cmd + ' ' + file2check
-                    print mycmd
+                    print(mycmd)
                     st, op = gso(repo, mycmd) #; assert st in [0,256],"%s returned %s"%(mycmd,st)
                     if st == 256:
                         ofn = ofns[cmd]
@@ -291,8 +325,8 @@ class AutoMerger(object):
 
     def perform_merge(
             self, merge_type, repo, from_branch, to_branch, lastcommits, message):
-        print 'commencing %s merge %s => %s.'\
-              % (merge_type, from_branch, to_branch)
+        print('commencing %s merge %s => %s.'\
+              % (merge_type, from_branch, to_branch))
         self.checkout(repo, to_branch)
         cmd = 'git merge {squash_arg} {source_branch}'.format(
             repo=repo, source_branch=from_branch,squash_arg = (merge_type=='single' and '--squash' or ''))
@@ -301,7 +335,7 @@ class AutoMerger(object):
         #in standard merges we are explicit about conflicts
         conflicts = None
         if merge_type == 'standard' and st == 256:
-            print 'standard merge returned %s' % st
+            print('standard merge returned %s' % st)
             conflicts = self.extract_conflicts(op)
             raise Exception('got confl')
         else:
@@ -313,21 +347,20 @@ class AutoMerger(object):
             for smn,smi in apndt['submodule_issues'].items():
                 cmd = 'git update-index --cacheinfo 160000 %(rev)s %(pth)s'%{'rev':smi['correct_new_rev'],'pth':smi['path']}
                 st,op = gso(apndt['repo'],cmd)
-                print '%s: %s'%(apndt['repo'],cmd)
+                print('%s: %s'%(apndt['repo'],cmd))
                 assert st==0
         target_last_commit = lastcommits[to_branch][0]
         linter_result=None
         if merge_type == 'single':
-            print 'regular merge done. resetting to last %s commit %s'\
-                  % (to_branch, target_last_commit)
+            print('regular merge done. resetting to last %s commit %s'\
+                  % (to_branch, target_last_commit))
             if self.got_untracked(repo):
                 raise Exception('got untracked files in single merge.')
 
             sm_updated = self.handle_submodules(repo, to_branch,apndt)
 
-            #print 'reset succesful.'
             if self.args.linters:
-                print "Run linter for python source"
+                print("Run linter for python source")
                 linter_result = self.run_linters(repo)
             if not message:
                 raise Exception('--message not specified in single merge.')
@@ -339,13 +372,13 @@ class AutoMerger(object):
                 repo=repo, message=message,emptyallow=emptyallow)
             st, op = gso(repo, cmd)
             assert st == 0,"commit failed with %s => %s\n%s"%(cmd,st,op)
-            print 'succesfully re-merged.'
+            print('succesfully re-merged.')
 
         elif merge_type == 'standard':
-            print 'regular merge done. doing submodules'
+            print('regular merge done. doing submodules')
             sm_updated = self.handle_submodules(repo, to_branch,apndt)
             if self.args.linters:
-                print "Run linter for python source"
+                print("Run linter for python source")
                 linter_result = self.run_linters(repo,withbranch=self.args.from_branch)
 
         #check if there are any differences
@@ -358,7 +391,7 @@ class AutoMerger(object):
             assert st in [0, 256], "%s => %s" % (cmd, st)
             opl = len(op.split('\n'))
             if opl > 1:
-                print op
+                print(op)
                 raise Exception('got a difference of %s lines between branches after merge.' % opl)
 
 
@@ -404,7 +437,7 @@ class AutoMerger(object):
         return apnd
 
     def merge(self, repo, from_branch, to_branch, message):
-        print 'WORKING %s MERGE on %s %s => %s' % (self.args.merge_type.upper(), repo, from_branch, to_branch)
+        print('WORKING %s MERGE on %s %s => %s' % (self.args.merge_type.upper(), repo, from_branch, to_branch))
         assert repo in self.repos
         self.clone(repo,[from_branch,to_branch])
 
@@ -433,17 +466,19 @@ class AutoMerger(object):
         source_last_commit = lastcommits[from_branch][0]
 
         if self.args.merge_type == 'single':
+            raise Exception('sup yo')            
             if target_last_commit not in lastcommits[from_branch]\
                     and not self.args.nolastcheck:
-                print 'target branch ({target_branch}) last commit '\
+                print('target branch ({target_branch}) last commit '\
                     '{target_last_commit} is not present '\
                     'in source branch {source_branch}'\
                     .format(target_branch=to_branch,
                             source_branch=from_branch,
-                            target_last_commit=target_last_commit)
+                            target_last_commit=target_last_commit))
                 self.checkout(repo, to_branch)
                 last_commit_w_msg = self.get_last_commits(
                     repo, to_branch, 1, True)[0]
+
                 if last_commit_w_msg['message'] == message:
                     self.aborted.append({
                         'repo': repo,
@@ -451,8 +486,8 @@ class AutoMerger(object):
                         'target_branch': to_branch,
                         'reason': 'Already merged.'})
                     return
-                print 'last commits on %s' % from_branch
-                print lastcommits[from_branch]
+                print('last commits on %s' % from_branch)
+                print(lastcommits[from_branch])
                 self.aborted.append({
                     'repo': repo,
                     'source_branch': from_branch,
@@ -460,9 +495,9 @@ class AutoMerger(object):
                     'reason': 'Missing last target commit on source.'.upper(),
                     'reverse_cmd':'cd %(repodir)s && git checkout %(from_branch)s && git merge %(to_branch)s && git log -1 && git push origin %(from_branch)s && cd ../..'%{'repodir':'repos/%s'%repo,'from_branch':from_branch,'to_branch':to_branch}
                     })
-                
                 return
         try:
+            raise Exception('should not be here')
             if not self.args.is_reverse and target_last_commit == source_last_commit and not self.args.allowidentical:
                 raise Exception(
                     'WARNING: branches %s and %s are identical.'
@@ -471,9 +506,9 @@ class AutoMerger(object):
             assert self.args.merge_type in ['single', 'standard', 'none']
             methname = '%s_merge' % self.args.merge_type
             meth = getattr(self, methname)
-            print 'invoking %s' % methname
+            print('invoking %s' % methname)
             rt = meth(self, repo, from_branch, to_branch, lastcommits, message)
-            print 'done.'
+            print('done.')
             torun = rt['torun']
             sm_updated = rt['sm_updated']
             conflicts = rt['conflicts']
@@ -503,7 +538,8 @@ class AutoMerger(object):
             else:
                 self.completed.append(apnd)
                 self.completed_lst.append(repo)
-        except Exception, e:
+        except Exception as e:
+            raise
             import traceback
             self.screwed_up.append(
                 {'repo': repo,
@@ -513,24 +549,24 @@ class AutoMerger(object):
                  'traceback': traceback.format_exc()})
 
     @staticmethod
-    def _sortaborted(e1, e2):
-        return cmp(e1['reason'], e2['reason'])
+    def _sortaborted(e1):
+        return e1['reason']
 
     def print_item(self, i):
-        print json.dumps(i, sort_keys=True, indent=True)
+        print(json.dumps(i, sort_keys=True, indent=True))
 
     def print_results(self):
         if len(self.completed):
-            print '########## COMPLETE: ##########'
+            print('########## COMPLETE: ##########')
             for res in self.completed:
                 self.print_item(res)
-        self.aborted.sort(self._sortaborted)
+        self.aborted.sort(key=self._sortaborted)
         if len(self.aborted):
-            print '########## ABORTED: ##########'
+            print('########## ABORTED: ##########')
             for abrt in self.aborted:
                 self.print_item(abrt)
         if len(self.screwed_up):
-            print '########## SCREWED UP: ##########'
+            print('########## SCREWED UP: ##########')
             for scr in self.screwed_up:
                 self.print_item(scr)
 
@@ -631,7 +667,7 @@ class AutoMerger(object):
                         'repo':repo,
                         'submodules':','.join([sm['repo'] for sm in c.SUBMODULES.get(repo,{})])} for repo in c.REPOS]
             for r in dorepos:
-                print r['repo'],r['submodules']
+                print(r['repo'],r['submodules'])
             return
         
         self.setargs(args)
@@ -681,10 +717,10 @@ class AutoMerger(object):
                     doing.append(repo)
             dff = set(argrepos.keys())-set(doing)
             if len(dff):
-                print 'argrepos',set(argrepos.keys())
-                print 'doing',set(doing)
-                print 'dff',dff
-                print 'args',args
+                print('argrepos',set(argrepos.keys()))
+                print('doing',set(doing))
+                print('dff',dff)
+                print('args',args)
                 raise Exception('some repos unrecognized: %s'%dff)
         else:
             raise Exception('no repos or the --allrepos flag specified.')
@@ -694,7 +730,7 @@ class AutoMerger(object):
                 inter = repobj['from_branch']
                 repobj['from_branch'] = args.to_branch
                 args.to_branch = inter
-                print 'IS REVERSE: %s -> %s'%(repobj['from_branch'],args.to_branch)
+                print('IS REVERSE: %s -> %s'%(repobj['from_branch'],args.to_branch))
             # determine whether to_branch gets modified as a result of this repo being a submodule.
             to_branch_override = None
             for m,sms in c.SUBMODULES.items():
