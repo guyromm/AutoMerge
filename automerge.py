@@ -20,7 +20,6 @@ class cd:
         
     def __enter__(self):
         self.savedPath = os.getcwd()
-        print('changing dir to',self.newPath)
         os.chdir(self.newPath)
         
     def __exit__(self, etype, value, traceback):
@@ -35,10 +34,8 @@ def getstatusoutput(cmd,path=None):
         if path:
             assert os.path.exists(path),"%s does not exist"%(path)
             with cd(path):
-                print('executing in cd',cmd)
                 rt = subprocess.check_output(ex,shell=True)
         else:
-            print('executing',cmd)        
             rt = subprocess.check_output(ex,shell=True)
     except subprocess.CalledProcessError as cpe:
         return cpe.returncode,""
@@ -388,12 +385,11 @@ class AutoMerger(object):
             cmd += " | " + """ egrep -v '^(\+\+\+|\-\-\-|@@|(\-|\+)Subproject|diff|index)'"""
             st, op = gso(
                 repo, cmd)
-            assert st in [0, 256], "%s => %s" % (cmd, st)
+            assert st in [0, 256,1], "%s => %s" % (cmd, st)
             opl = len(op.split('\n'))
             if opl > 1:
                 print(op)
                 raise Exception('got a difference of %s lines between branches after merge.' % opl)
-
 
         pushcmd = 'git push origin {target_branch}'.format(
             repo=repo, target_branch=to_branch)
