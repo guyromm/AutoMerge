@@ -466,7 +466,6 @@ class AutoMerger(object):
         source_last_commit = lastcommits[from_branch][0]
 
         if self.args.merge_type == 'single':
-            raise Exception('sup yo')            
             if target_last_commit not in lastcommits[from_branch]\
                     and not self.args.nolastcheck:
                 print('target branch ({target_branch}) last commit '\
@@ -497,7 +496,6 @@ class AutoMerger(object):
                     })
                 return
         try:
-            raise Exception('should not be here')
             if not self.args.is_reverse and target_last_commit == source_last_commit and not self.args.allowidentical:
                 raise Exception(
                     'WARNING: branches %s and %s are identical.'
