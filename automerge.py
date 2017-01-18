@@ -100,10 +100,12 @@ class AutoMerger(object):
                 st,op =getstatusoutput(cmd,path=cachedir) ; assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
 
         if not self.args.noclone and not os.path.exists(repopath):
+            print(repopath,'does not exist')
             print('clone of %s.' % (repo))
-            cmd = 'cd %s && ../git-new-workdir %s %s' % (c.REPODIR,os.path.join('..',cachedir),repo)
-            st, op = getstatusoutput(cmd)
-            assert st == 0, "%s returned %s: %s" % (cmd, st, op)
+            with cd(c.REPODIR):
+                cmd = '../git-new-workdir %s %s' % (os.path.join('..',cachedir),repo)
+                st, op = getstatusoutput(cmd)
+                assert st == 0, "%s returned %s: %s" % (cmd, st, op)
             print('clone complete.')
         elif not self.args.nofetch:
             print('fetch -a of %s' % repo)
