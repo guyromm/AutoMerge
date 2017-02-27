@@ -421,17 +421,23 @@ class AutoMerger(object):
                     st,op = gso(repo,cmd)
                     assert st==0
                     mycmpl = [cmpl for cmpl in self.completed if cmpl['repo']==mysub['repo']]
-                    assert len(mycmpl)==1,"%s submodule %s is not in completed"%(repo,mysub['repo'])
-                    mycmpl = mycmpl[0]
-                    new_rev = mycmpl['new_rev']
-                    new_rev_real = op.strip('+-\n ').split(' ')[0]
-                    if new_rev!=new_rev_real:
-                        if 'submodule_issues' not in apnd: apnd['submodule_issues']={}
-                        apnd['submodule_issues'][mysub['repo']]={'repo':repo,
+                    if not len(mycmpl)==1:
+                        if 'submodule_incomplete' not in apnd: apnd['submodule_incomplete']={}
+                        apnd['submodule_incomplete'][mysub['repo']]={'repo':repo,
                                                                  'path':mysub['path'],
                                                                  'submodule':mysub['repo'],
-                                                                 'correct_new_rev':new_rev,
-                                                                 'incrrct_new_rev':new_rev_real}
+                                                                 'message':"%s submodule %s is not in completed (%s)"%(repo,mysub['repo'],self.completed)}
+                    else:
+                        mycmpl = mycmpl[0]
+                        new_rev = mycmpl['new_rev']
+                        new_rev_real = op.strip('+-\n ').split(' ')[0]
+                        if new_rev!=new_rev_real:
+                            if 'submodule_issues' not in apnd: apnd['submodule_issues']={}
+                            apnd['submodule_issues'][mysub['repo']]={'repo':repo,
+                                                                     'path':mysub['path'],
+                                                                     'submodule':mysub['repo'],
+                                                                     'correct_new_rev':new_rev,
+                                                                     'incrrct_new_rev':new_rev_real}
         return apnd
 
     def merge(self, repo, from_branch, to_branch, message):
