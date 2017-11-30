@@ -53,6 +53,31 @@ def gso(repo=None, cmd=None, path=None):
 #make sure no extra files are merged
 #make sure that the source branch has all the commits of the target branch
 
+def add_common_args(optparser):
+    optparser.add_argument(
+        '--purge', action='store_true', dest='purge',
+        help='purge all checked out repos.')
+    optparser.add_argument(
+        '--purge-cache', action='store_true', dest='purge_cache',
+        help='purge all locally cached repos.')
+    optparser.add_argument(
+        '--ignore-missing-branches',
+        action='store_true',
+        dest='ignore_missing_branches',
+        help='Ignore repositories which do not have the branches specified. useful with --allrepos.')
+    optparser.add_argument(
+        '--noclone', action='store_true', dest='noclone',
+        help='avoid cloning missing repositories.')
+    optparser.add_argument(
+        '--nofetch', action='store_true', dest='nofetch',
+        help='do not run git fetch -a')
+    optparser.add_argument(
+        '--push', action='store_true', dest='push',
+        help='push to origin after merge is done locally.')
+    optparser.add_argument(
+        '--nopull', action='store_true', dest='nopull',
+        help='do not pull latest branches, use the ones that exist '
+             'locally.')
 
 class AutoMerger(object):
 
@@ -92,12 +117,34 @@ class AutoMerger(object):
         elif os.path.exists(cachedir):
             for branch in set(branches):
                 print('resetting cache %s to remote %s.'%(cachedir,branch))
+                if type(branch)!=str: raise Exception(repo,branch,'no branch')
                 if hashre.search(branch):
                     prefix=''
                 else:
                     prefix='origin/'
-                cmd = 'git fetch -a && git checkout %(branch)s && git clean -f -d ; git reset --hard %(prefix)s%(branch)s'%{'cachedir':cachedir,'branch':branch,'prefix':prefix}
-                st,op =getstatusoutput(cmd,path=cachedir) ; assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
+                cmdargs = {'cachedir':cachedir,'branch':branch,'prefix':prefix,'repo':repo}
+                cmd = 'git fetch -a'%cmdargs
+                assert os.path.exists(cachedir)
+                st,op = getstatusoutput(cmd,path=cachedir)
+                assert st==0
+
+                if self.args.ignore_missing_branches:
+                    cmd = 'cd %(cachedir)s && git rev-parse --verify %(branch)s'%cmdargs
+                    st,op = getstatusoutput(cmd)
+                    if st!=0:
+                        print('path:',cachedir)
+                        print('cmd:',cmd)
+                        print('st:',st)
+                        print('op:',op)
+                        print('branch %(branch)s does not exist on %(repo)s. not cloning into cachedir (1)'%cmdargs)
+                        return False
+                cmd='git checkout %(branch)s && git clean -f -d'%cmdargs
+                st,op =getstatusoutput(cmd,path=cachedir) ;
+                assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
+
+                cmd = 'git reset --hard %(prefix)s%(branch)s'%cmdargs
+                assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
+
 
         if not self.args.noclone and not os.path.exists(repopath):
             print(repopath,'does not exist')
@@ -113,18 +160,33 @@ class AutoMerger(object):
             st, op = gso(repo, cmd)
             assert st == 0, "%s returned %s" % (cmd, st)
             print('fetch -a complete.')
-       
+        return True
+
     def checkout(self, repo, branch):
+        repopath = os.path.join(c.REPODIR, repo)
+        cachedir = os.path.join(c.CACHEDIR, repo)
         if hashre.search(branch):
             prefix='--detach'
         else:
             prefix=''
-        cmd = 'git checkout --force {prefix} {branch} '.format(prefix=prefix,repo=repo, branch=branch)
+        if self.args.ignore_missing_branches:
+            #cmd = 'cd %s && git rev-parse --verify %s'%(repopath,branch)
+            cmd = "cd %s && git ls-remote --heads | egrep %s | awk '{print $1}'"%(repopath,branch)
+            st,op = getstatusoutput(cmd)
+            if st!=0 or op.strip()=='':
+                print('repopath:',repopath)
+                print('branch:',branch)
+                print('cmd:',cmd)
+                print('branch %s does not exist on %s. not cloning (2)'%(branch,repo))
+                return False
+        cmd = 'cd {repopath} && git checkout --force {prefix} {branch} '.format(repopath=repopath,
+                                                                                prefix=prefix,
+                                                                                repo=repo,
+                                                                                branch=branch)
 
         if not hashre.search(branch) and not self.args.nopull:
             cmd += '; git pull origin {branch}'.format(
                 repo=repo, branch=branch)
-
         st, op = gso(repo, cmd)
         assert st in [0, 256], "%s returned %s" % (cmd, st)
         if st == 256:
@@ -443,17 +505,20 @@ class AutoMerger(object):
     def merge(self, repo, from_branch, to_branch, message):
         print('WORKING %s MERGE on %s %s => %s' % (self.args.merge_type.upper(), repo, from_branch, to_branch))
         assert repo in self.repos
-        self.clone(repo,[from_branch,to_branch])
-
+        clres = self.clone(repo,[from_branch,to_branch])
+        if not clres:
+            print('clone failed on %s, %s; skipping.'%(repo,from_branch))
+            return
         lastcommits = {}
         for br in [from_branch, to_branch]:
             if br:
                 if not self.checkout(repo, br):
-                    self.aborted.append(
-                        {'repo': repo, 
-                         'source_branch': from_branch, 
-                         'target_branch': to_branch, 
-                         'reason': 'initial checkout of %s failed.' % br})
+                    if not self.args.ignore_missing_branches:
+                        self.aborted.append(
+                            {'repo': repo,
+                             'source_branch': from_branch,
+                            'target_branch': to_branch,
+                             'reason': 'initial checkout of %s failed.' % br})
                     return
                 #print('supposedly checkout out %s / %s'%(repo,br))
                 lastcommits[br] = self.get_last_commits(repo, br, commits=c.REVS_TO_CHECK_BACK)
@@ -603,26 +668,13 @@ class AutoMerger(object):
             '--repo', action='append', dest='repos',
             help='specify specific repository(ies) to merge. repeatable.')
 
-        optparser.add_argument(
-            '--nofetch', action='store_true', dest='nofetch',
-            help='do not run git fetch -a')
 
-        optparser.add_argument(
-            '--nopull', action='store_true', dest='nopull',
-            help='do not pull latest branches, use the ones that exist '
-                 'locally.')
 
-        optparser.add_argument(
-            '--noclone', action='store_true', dest='noclone',
-            help='avoid cloning missing repositories.')
 
         optparser.add_argument(
             '--nopush', action='store_true', dest='nopush',
             help='do not push - the default.')
 
-        optparser.add_argument(
-            '--push', action='store_true', dest='push',
-            help='push to origin after merge is done locally.')
 
         optparser.add_argument(
             '--list-repos',action='store_true',dest='list_repos',
@@ -632,13 +684,7 @@ class AutoMerger(object):
             '--allrepos', action='store_true', dest='allrepos',
             help='merge all repositories instead of specifying via --repo')
 
-        optparser.add_argument(
-            '--purge', action='store_true', dest='purge',
-            help='purge all checked out repos.')
-
-        optparser.add_argument(
-            '--purge-cache', action='store_true', dest='purge_cache',
-            help='purge all locally cached repos.')
+        add_common_args(optparser)
 
         optparser.add_argument(
             '--nolastcheck', action='store_true', dest='nolastcheck',
@@ -665,7 +711,7 @@ class AutoMerger(object):
         args = optparser.parse_args()
 
         if args.list_repos:
-            dorepos = [{'from_branch':args.from_branch, 
+            dorepos = [{'from_branch':args.from_branch,
                         'repo':repo,
                         'submodules':','.join([sm['repo'] for sm in c.SUBMODULES.get(repo,{})])} for repo in c.REPOS]
             for r in dorepos:
@@ -697,7 +743,7 @@ class AutoMerger(object):
         args.repos = erepos
         
         if args.allrepos:
-            dorepos = [{'from_branch':args.from_branch, 
+            dorepos = [{'from_branch':args.from_branch,
                         'repo':repo} for repo in c.REPOS]
         elif args.repos and len(args.repos):
             argrepos = {}
@@ -737,7 +783,9 @@ class AutoMerger(object):
             to_branch_override = None
             for m,sms in c.SUBMODULES.items():
                 for sm in sms:
-                    if sm['repo']==repobj['repo'] and sm.get('target_branch_mask') and m in [ro['repo'] for ro in dorepos]:
+                    if sm['repo']==repobj['repo'] and \
+                       sm.get('target_branch_mask') and \
+                       m in [ro['repo'] for ro in dorepos]:
                         assert not to_branch_override,"%s already set for %s"%(to_branch_override,repobj['repo'])
                         to_branch_override=sm.get('target_branch_mask')%args.to_branch
             to_branch = to_branch_override and to_branch_override or args.to_branch
