@@ -138,9 +138,9 @@ class AutoMerger(object):
                         print('op:',op)
                         print('branch %(branch)s does not exist on %(repo)s. not cloning into cachedir (1)'%cmdargs)
                         return False
-                cmd='git checkout %(branch)s && git clean -f -d'%cmdargs
+                cmd='git checkout -f %(branch)s && git reset --hard origin/%(branch)s && git clean -f -d'%cmdargs
                 st,op =getstatusoutput(cmd,path=cachedir) ;
-                assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
+                assert st==0,"'%s' returned %s\n%s\nin path %s"%(cmd,st,op,cachedir)
 
                 cmd = 'git reset --hard %(prefix)s%(branch)s'%cmdargs
                 assert st==0,"'%s' returned %s\n%s"%(cmd,st,op)
