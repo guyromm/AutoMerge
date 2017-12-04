@@ -58,11 +58,15 @@ def perform_one(args,am,repo,havecloned,tocommit,notcloned,branch,push=False):
                         tbm=rsub.get('target_branch_mask','')
                         if tbm:
                                 sbm = '^'+tbm.replace('%s','(.*)')+'$' # FIXME: ugly and bad.
-                                target_branch = re.compile(sbm).search(branch).group(1)
+                                tbres = re.compile(sbm).search(branch)
+                                if tbres:
+                                        target_branch = tbres.group(1)
+                                else:
+                                        target_branch = branch
                         else:
                                 target_branch = branch
                         
-                        rrepo in havecloned or am.clone(rrepo,branches=[branch])
+                        rrepo in havecloned or am.clone(rrepo,branches=[target_branch])
                         if rrepo in havecloned or am.checkout(rrepo,target_branch):
                                 if havecloned.get(rrepo): assert havecloned[rrepo]==target_branch,"%s != %s for havecloned %s"%(havecloned[rrepo],target_branch,rrepo)
                                 if rrepo not in havecloned: havecloned[rrepo]=target_branch
