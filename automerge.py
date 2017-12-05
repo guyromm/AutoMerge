@@ -129,9 +129,10 @@ class AutoMerger(object):
                 assert st==0
 
                 if self.args.ignore_missing_branches:
-                    cmd = 'cd %(cachedir)s && git rev-parse --verify %(branch)s'%cmdargs
+                    cmd = "cd %(cachedir)s && git ls-remote --heads | egrep %(branch)s | awk '{print $1}'"%cmdargs
                     st,op = getstatusoutput(cmd)
-                    if st!=0:
+                    retrev = op.strip()
+                    if st!=0 or not retrev:
                         print('path:',cachedir)
                         print('cmd:',cmd)
                         print('st:',st)
@@ -170,7 +171,6 @@ class AutoMerger(object):
         else:
             prefix=''
         if self.args.ignore_missing_branches:
-            #cmd = 'cd %s && git rev-parse --verify %s'%(repopath,branch)
             cmd = "cd %s && git ls-remote --heads | egrep %s | awk '{print $1}'"%(repopath,branch)
             st,op = getstatusoutput(cmd)
             if st!=0 or op.strip()=='':

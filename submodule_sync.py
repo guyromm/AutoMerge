@@ -11,9 +11,9 @@ import argparse
 
         
 def perform(args,am):
-        tocommit={};notcloned=[] ; havecloned={}
+        tocommit={};notcloned=[] ; havecloned={} ; already_in = {}
         for r in args.repos[0]:
-                tocommit,notcloned,havecloned = perform_one(args,am,r,havecloned,tocommit,notcloned,args.branch,args.push)
+                tocommit,already_in,notcloned,havecloned = perform_one(args,am,r,havecloned,tocommit,already_in,notcloned,args.branch,args.push)
         
         if not len(tocommit):
                 print('NOTHING TO COMMIT!')
@@ -23,12 +23,16 @@ def perform(args,am):
                 commit_repo(rrepo,items)
                 # 5. push if required                
                 if args.push: push_repo(rrepo,branch)
+        for rrepo,items in already_in.items():
+                print('ALREADY_IN',rrepo,items)
+                
         if len(notcloned):
                 print('NOT CLONED:')
                 print('\n'.join(['/'.join(nc) for nc in notcloned]))
-                
         
-def perform_one(args,am,repo,havecloned,tocommit,notcloned,branch,push=False):
+
+        
+def perform_one(args,am,repo,havecloned,tocommit,already_in,notcloned,branch,push=False):
         # 1. obtain revs of specified repo on branch
         assert am.clone(repo,branches=[branch]),"could not clone %s"%repo
         assert am.checkout(repo,branch),"could not check out %s on %s"%(branch,repo)
@@ -45,7 +49,7 @@ def perform_one(args,am,repo,havecloned,tocommit,notcloned,branch,push=False):
         target_repos = args.target_repos and args.target_repos.split(',') or []
         for rr in dorepos:
                 if len(target_repos) and rr[0] not in target_repos:
-                        print('EXPLICITLY SKIPPING',rr[0])
+                        #print('EXPLICITLY SKIPPING',rr[0])
                         continue
                 # [sm for sm in c.SUBMODULES[r] if sm['repo']==r]
                 # raise Exception('setting',repo,'to',rev,'on',dorepos)
@@ -55,16 +59,25 @@ def perform_one(args,am,repo,havecloned,tocommit,notcloned,branch,push=False):
                         # if source submodule has its branch under a target_branch_mask scheme
                         # do a reverse lookup of the original branch on the target
                         # to figure out which branch target repos to commit to.
-                        tbm=rsub.get('target_branch_mask','')
+                        tbm=rsub.get('target_branch_mask','') ; target_branch=None
                         if tbm:
                                 sbm = '^'+tbm.replace('%s','(.*)')+'$' # FIXME: ugly and bad.
                                 tbres = re.compile(sbm).search(branch)
                                 if tbres:
                                         target_branch = tbres.group(1)
+                                        print('TARGET_BRANCH matched from reverse mask',sbm,':',branch,'=>',target_branch)
                                 else:
-                                        target_branch = branch
+                                        if branch in c.TOP_LEVEL_BRANCHES:
+                                                print('TARGET_BRANCH failed to match from mask; is A TOP LEVEL; skipping',target_branch,sbm)
+                                                continue
+                                        else:
+                                                target_branch = branch
+                                                print('TARGET_BRANCH failed to match from mask; is not top-level. using source branch',branch)  
+                                                
                         else:
                                 target_branch = branch
+                                print('TARGET_BRANCH vanilla, without mask mask',target_branch)
+                        assert target_branch,"target branch not set"
                         
                         rrepo in havecloned or am.clone(rrepo,branches=[target_branch])
                         if rrepo in havecloned or am.checkout(rrepo,target_branch):
@@ -76,10 +89,13 @@ def perform_one(args,am,repo,havecloned,tocommit,notcloned,branch,push=False):
                                 if update_index(am,rrepo,rsub['path'],rev):
                                         if rrepo not in tocommit: tocommit[rrepo]=[]
                                         tocommit[rrepo].append("%s/%s:%s"%(repo,branch,rev))
+                                else:
+                                        if rrepo not in already_in: already_in[rrepo]=[]                                        
+                                        already_in[rrepo].append("%s/%s:%s"%(repo,branch,rev))
                         else:
                                 print('COULD NOT CLONE/CHECKOUT',rrepo,target_branch,'; SKIPPING')
                                 notcloned.append([rrepo,target_branch])
-        return tocommit,notcloned,havecloned
+        return tocommit,already_in,notcloned,havecloned
 
 
 def commit_repo(repo,items):
@@ -107,9 +123,10 @@ def update_index(am,repo,path,rev):
                 if crev==rev:
                         print('%s ALREADY SET on %s %s'%(rev,repo,path))
                         return False
-                st,op = getstatusoutput('git update-index --cacheinfo 160000 %s %s'%(rev,path))
+                cmd = 'git update-index --cacheinfo 160000 %s %s'%(rev,path)
+                st,op = getstatusoutput(cmd)
                 print('HAVE UPDATED INDEX ON %s/%s to %s'%(repo,path,rev)) 
-                assert st==0
+                assert st==0,"%s returned %s\n%s\n in %s"%(cmd,st,op,rd)
         return True
 
 if __name__=='__main__':
