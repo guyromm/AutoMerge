@@ -21,8 +21,10 @@ def perform(args,am):
         for rrepo,items in tocommit.items():
                 print('ABOUT TO COMMIT',rrepo,items)
                 commit_repo(rrepo,items)
-                # 5. push if required                
-                if args.push: push_repo(rrepo,branch)
+                # 5. push if required
+                tbranch = [i[1] for i in items][0]
+                if args.push:
+                        push_repo(rrepo,tbranch)
         for rrepo,items in already_in.items():
                 print('ALREADY_IN',rrepo,items)
                 
@@ -88,7 +90,7 @@ def perform_one(args,am,repo,havecloned,tocommit,already_in,notcloned,branch,pus
                                 assert br==target_branch,"%s of %s != %s"%(br,rrepo,target_branch)
                                 if update_index(am,rrepo,rsub['path'],rev):
                                         if rrepo not in tocommit: tocommit[rrepo]=[]
-                                        tocommit[rrepo].append("%s/%s:%s"%(repo,branch,rev))
+                                        tocommit[rrepo].append(["%s/%s:%s"%(repo,branch,rev),target_branch])
                                 else:
                                         if rrepo not in already_in: already_in[rrepo]=[]                                        
                                         already_in[rrepo].append("%s/%s:%s"%(repo,branch,rev))
@@ -100,8 +102,11 @@ def perform_one(args,am,repo,havecloned,tocommit,already_in,notcloned,branch,pus
 
 def commit_repo(repo,items):
         rd = os.path.join(c.REPODIR,repo)
+        tbranches = set([i[1] for i in items])
+        assert len(tbranches)==1,"not a single target branch per repo for %s? %s"(repo,tbranches)
+        
         with cd(rd):
-                cmd = 'git commit -m "submodule_sync of %s"'%",".join(items)
+                cmd = 'git commit -m "submodule_sync of %s"'%",".join([i[0] for i in items])
                 #print('executing',cmd,'in',rd)
                 st,op = getstatusoutput(cmd)
                 if st!=0: print('commit returned',st,'output',op)
