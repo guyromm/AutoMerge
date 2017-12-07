@@ -35,20 +35,26 @@ def perform(args,am):
 
         
 def perform_one(args,am,repo,havecloned,tocommit,already_in,notcloned,branch,push=False):
-        # 1. obtain revs of specified repo on branch
-        assert am.clone(repo,branches=[branch]),"could not clone %s"%repo
-        assert am.checkout(repo,branch),"could not check out %s on %s"%(branch,repo)
-        rd = os.path.join(c.REPODIR,repo)
-        with cd(rd):
-                st,rev = getstatusoutput("git log -1 --pretty=oneline | awk '{print $1}'")
-                assert st==0
-                rev = rev.strip()
-        # 2. understand which parent repos contain these repos as submodules
+        # 1. understand which parent repos contain the affected repos as submodules
         dorepos = [[r,c.SUBMODULES[r]] for r in c.REPOS \
                    if repo in [sm['repo'] for sm in c.SUBMODULES.get(r,[])]]
+        target_repos = args.target_repos and args.target_repos.split(',') or []
+        if len(target_repos):
+                dorepos = [dr for dr in dorepos if dr in target_repos]
+
+        # 2. obtain revs of specified repo on branch
+        if len(dorepos):
+                assert am.clone(repo,branches=[branch]),"could not clone %s"%repo
+                assert am.checkout(repo,branch),"could not check out %s on %s"%(branch,repo)
+                rd = os.path.join(c.REPODIR,repo)
+                with cd(rd):
+                        st,rev = getstatusoutput("git log -1 --pretty=oneline | awk '{print $1}'")
+                        assert st==0
+                        rev = rev.strip()
+        else:
+                print('NOT CLONING AFFECTED REPO - dorepos is empty.')
 
         # 3. perform the replacement
-        target_repos = args.target_repos and args.target_repos.split(',') or []
         for rr in dorepos:
                 if len(target_repos) and rr[0] not in target_repos:
                         #print('EXPLICITLY SKIPPING',rr[0])
